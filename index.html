@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIMTA | بطاقة المندوب التجريبية</title>
+<style>
+:root{--bg:#f3f1ec;--ink:#252c2b;--gold:#c7a66a;--muted:#777;}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,Arial,sans-serif;color:var(--ink);padding:22px 14px}
+.wrap{max-width:430px;margin:auto} .card{background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 14px 40px #252c2b18}
+.hero{background:linear-gradient(135deg,#202725,#343b37);padding:30px 24px 26px;text-align:center;color:white}
+.logo{font-size:38px;font-weight:800;letter-spacing:5px;color:var(--gold)} .sub{font-size:11px;letter-spacing:2px;margin-top:5px;color:#eee}
+.tag{display:inline-block;border:1px solid #c7a66a88;color:var(--gold);border-radius:30px;padding:6px 13px;font-size:10px;margin-top:18px;letter-spacing:1px}
+.body{padding:24px} .person{display:flex;align-items:center;gap:15px} .avatar{width:76px;height:76px;border-radius:50%;background:#e9e3d7;display:grid;place-items:center;font-size:30px;border:3px solid #d6c29d}
+h1{font-size:21px;margin:0 0 5px} .role{font-size:13px;color:var(--muted)} .id{font-size:11px;color:#a17e43;margin-top:7px;direction:ltr;text-align:right}
+.line{height:1px;background:#eee;margin:22px 0} .section{font-size:10px;letter-spacing:1.5px;color:#a17e43;font-weight:700;margin-bottom:12px;direction:ltr;text-align:right}
+.info{display:flex;gap:12px;align-items:center;margin:13px 0;font-size:14px} .ico{width:32px;height:32px;border-radius:10px;background:#f4f0e8;display:grid;place-items:center;color:#9d7c45}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px} a.btn,button.btn{text-decoration:none;border:0;border-radius:12px;padding:13px 8px;text-align:center;font-weight:650;font-size:13px;cursor:pointer}
+.primary{background:var(--ink);color:white} .secondary{background:#f2eee6;color:#4b4438} .wide{grid-column:1/-1}
+.qrbox{text-align:center;background:#faf9f6;border-radius:16px;padding:16px;margin-top:20px} .qrbox img{width:124px;height:124px} .qrbox p{font-size:11px;color:var(--muted);margin:8px 0 0}
+.footer{background:#202725;color:#d2bd91;text-align:center;padding:16px;font-size:10px;letter-spacing:1.5px}
+.note{font-size:11px;color:#8a5c21;background:#fff3dc;border:1px solid #f0d7a8;padding:12px;border-radius:12px;margin:14px 2px 0;line-height:1.7}
+.en{direction:ltr;text-align:left} .lang{display:block;margin:0 auto 12px;border:1px solid #c7a66a;background:white;border-radius:30px;padding:8px 14px;color:#66512f}
+</style></head>
+<body><div class="wrap">
+<button class="lang" onclick="toggleLang()">العربية / English</button>
+<div class="card">
+<div class="hero"><div class="logo">SIMTA</div><div class="sub">READY MIX CONCRETE</div><div class="tag">SMART BUSINESS CARD</div></div>
+<div class="body" id="content">
+<div class="person"><div class="avatar">👤</div><div><h1 id="name">أحمد محمد علي</h1><div class="role" id="role">مندوب مبيعات</div><div class="id">REPRESENTATIVE ID · SMT-001</div></div></div>
+<div class="line"></div>
+<div class="section" id="company">COMPANY INFORMATION</div>
+<div class="info"><span class="ico">🏢</span><span id="companyName">SIMTA Ready Mix Concrete</span></div>
+<div class="info"><span class="ico">📍</span><span id="region">المنطقة الشرقية – السعودية</span></div>
+<div class="line"></div>
+<div class="section" id="contact">CONTACT REPRESENTATIVE</div>
+<div class="info"><span class="ico">☎</span><span dir="ltr">+966 50 123 4567</span></div>
+<div class="info"><span class="ico">✉</span><span dir="ltr">ahmed.demo@example.com</span></div>
+<div class="actions">
+<a class="btn primary" href="tel:+966501234567" id="call">اتصال</a>
+<a class="btn secondary" href="https://wa.me/966501234567" id="wa">واتساب</a>
+<a class="btn secondary wide" href="mailto:ahmed.demo@example.com" id="email">إرسال بريد إلكتروني</a>
+<button class="btn primary wide" onclick="downloadVcard()" id="save">حفظ جهة الاتصال</button>
+</div>
+<div class="qrbox"><img alt="QR demo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQgAAAEICAIAAAAslP2oAAAFE0lEQVR4nO3dMW4cORRAwdXCZ3G0vv9B7MiXaQcbGXgMCJAgW6qK5daMpAcC803y43mef4C//Xv6BcCNhAFBGBCEAUEYEIQBQRgQhAFBGBCEAUEYEIQBQRgQhAFBGBC+zf6D7z/+2/E6lvv989fU14/e1+xzZq36vqt+L6e+726z78uKAUEYEIQBQRgQhAFBGBCEAWF6jjGy+/P+kdnP0d8+N9ht1c/nLX8PI1YMCMKAIAwIwoAgDAjCgCAMCMvmGCO3fd6/+zm75ySj56x6X7v3V9z29zBixYAgDAjCgCAMCMKAIAwIwoCwfY7xWe3eB7JqTnJqHvJ2VgwIwoAgDAjCgCAMCMKAIAwIX26OsXs/wG33RezeN/JZWTEgCAOCMCAIA4IwIAgDgjAgbJ9j3Pa5+Kr5w233bOx+zm3neu1mxYAgDAjCgCAMCMKAIAwIwoCwbI5x2z6Ekd3nMu2+J/vU65/1lr+HESsGBGFAEAYEYUAQBgRhQBAGhI/neU6/hivcds7SqfkJ/7NiQBAGBGFAEAYEYUAQBgRhQJjej3Hbfobdn9+/ZT/GW+w+j2vV792KAUEYEIQBQRgQhAFBGBCEAWHZfozd5xft/pz77a9n5NTrPDWXWPUcKwYEYUAQBgRhQBAGBGFAEAaE7fsxZr39c/eRU/OK2fe7ex/LyG37T6wYEIQBQRgQhAFBGBCEAUEYEKb3Y9x2jtMqp97XyG1zj9nnjNy272LEigFBGBCEAUEYEIQBQRgQhAHhujnGrNvOj5r19vsuRm47d8u5UrCAMCAIA4IwIAgDgjAgCAPC9LlSI7fd/3BqXnHbuVur3DZv2f13ZcWAIAwIwoAgDAjCgCAMCMKAsGyOMXLqnKJZq+YPu+/lGDm1T+bUvRa7n2/FgCAMCMKAIAwIwoAgDAjCgLB9jnHq/uzZ55/aNzJy6j7y3W77OY9YMSAIA4IwIAgDgjAgCAOCMCBsn2OMnLrv+S2fo6/aBzJy2z6WVVa9HisGBGFAEAYEYUAQBgRhQBAGhOk5xm37H96yz+HUuVIjp86DmnVq/4wVA4IwIAgDgjAgCAOCMCAIA8LH8zxT/+DU/79/yz0bI6vuzbjtnKvZ55+aI9mPAQsIA4IwIAgDgjAgCAOCMCBMzzFGbjuXadV84O3zkFXPOfVzOHVvuhUDgjAgCAOCMCAIA4IwIAgDwvb9GLftN/is51zNuu38qFP3aYxYMSAIA4IwIAgDgjAgCAOCMCBsvx9j99evcure8bc4dY/HqX0+VgwIwoAgDAjCgCAMCMKAIAwI03OM2/4f/8joc+tT5yN91jnJqfe1++/QigFBGBCEAUEYEIQBQRgQhAFheo4xctvn6KucmjOcOv9q9zlaq+z+vlYMCMKAIAwIwoAgDAjCgCAMCMvmGCNvuf971qr9HrPPX/X1s26bF42smiNZMSAIA4IwIAgDgjAgCAOCMCBsn2PcZve5Um+5t/vUvOXU/RizrBgQhAFBGBCEAUEYEIQBQRgQvtwcY/f5S6fOa9o9J3nL/GfV3MOKAUEYEIQBQRgQhAFBGBCEAWH7HOPU/Qkjs3OGt+yvGNl9T/ZtP59V39eKAUEYEIQBQRgQhAFBGBCEAWHZHOPU+T+zTt2Hfer5p+61OHXOlfsxYCNhQBAGBGFAEAYEYUAQBoSP53lOvwa4jhUDgjAgCAOCMCAIA4IwIAgDgjAgCAOCMCAIA4IwIAgDgjAgCAPCHyOXSD3qe1q5AAAAAElFTkSuQmCC"><p id="qrtext">امسح الرمز لفتح صفحة المندوب التجريبية</p></div>
+<div class="note" id="note">نسخة تجريبية ببيانات وهمية. رمز QR حاليًا يشير إلى رابط توضيحي غير منشور؛ يلزم نشر الصفحة على رابط عام قبل استخدامه على كارت مطبوع.</div>
+</div><div class="footer">SIMTA · READY MIX CONCRETE</div>
+</div></div>
+<script>
+let english=false;
+function toggleLang(){
+ english=!english;document.documentElement.lang=english?'en':'ar';document.documentElement.dir=english?'ltr':'rtl';
+ document.getElementById('name').textContent=english?'Ahmed Mohamed Ali':'أحمد محمد علي';
+ document.getElementById('role').textContent=english?'Sales Representative':'مندوب مبيعات';
+ document.getElementById('region').textContent=english?'Eastern Province, Saudi Arabia':'المنطقة الشرقية – السعودية';
+ document.getElementById('company').textContent=english?'COMPANY INFORMATION':'معلومات الشركة';
+ document.getElementById('contact').textContent=english?'CONTACT REPRESENTATIVE':'تواصل مع المندوب';
+ document.getElementById('call').textContent=english?'Call':'اتصال';
+ document.getElementById('wa').textContent=english?'WhatsApp':'واتساب';
+ document.getElementById('email').textContent=english?'Send Email':'إرسال بريد إلكتروني';
+ document.getElementById('save').textContent=english?'Save Contact':'حفظ جهة الاتصال';
+ document.getElementById('qrtext').textContent=english?'Scan to open demo representative profile':'امسح الرمز لفتح صفحة المندوب التجريبية';
+ document.getElementById('note').textContent=english?'Demo with fictional details. The QR currently points to a placeholder URL, not a published page. Publish the page to a public URL before printing cards.':'نسخة تجريبية ببيانات وهمية. رمز QR حاليًا يشير إلى رابط توضيحي غير منشور؛ يلزم نشر الصفحة على رابط عام قبل استخدامه على كارت مطبوع.';
+}
+function downloadVcard(){
+const v='BEGIN:VCARD\\nVERSION:3.0\\nFN:Ahmed Mohamed Ali\\nORG:SIMTA Ready Mix Concrete\\nTITLE:Sales Representative\\nTEL;TYPE=CELL:+966501234567\\nEMAIL:ahmed.demo@example.com\\nADR:;;Eastern Province;Saudi Arabia;;;;\\nEND:VCARD';
+const blob=new Blob([v],{type:'text/vcard;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='SIMTA-SMT-001.vcf';a.click();URL.revokeObjectURL(a.href);
+}
+</script></body></html>
