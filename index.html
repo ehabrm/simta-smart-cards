@@ -48,13 +48,13 @@ h1{font-size:21px;margin:0 0 5px;color:var(--brown2)}.role{font-size:13px;color:
 <div><div class="company-title" id="companyTitle">سيمتا | SIMTA</div><div class="company-desc" id="companyDesc">شركة متخصصة في مجال الخرسانة الجاهزة. تواصل مع ممثلنا لمعرفة المزيد عن خدماتنا.</div></div>
 </div>
 <div class="section" id="repHeading">مُمثّل الشركة</div>
-<div class="person"><div class="avatar" id="avatar">س</div><div><h1 id="name">أحمد محمد علي</h1><div class="role" id="role">مندوب مبيعات</div><div class="id" id="repId">REPRESENTATIVE ID · SMT-001</div></div></div>
+<div class="person"><div class="avatar" id="avatar">س</div><div><h1 id="name">أحمد محمد علي</h1><div class="role" id="role">مندوب مبيعات</div><div class="id" id="repId">REPRESENTATIVE ID · SMT-001</div></div></div><div id="notfound" style="display:none;text-align:center;padding:26px 10px 6px"><div style="font-size:17px;font-weight:800;color:#4b2f18" id="nfTitle">هذه البطاقة غير موجودة</div><div style="font-size:12px;color:#77716a;margin-top:8px;line-height:1.8" id="nfBody">الرابط أو الكود الذي تم مسحه غير صحيح. تأكد من الكود أو تواصل مع الشركة.</div></div>
 <div class="line"></div>
 <div class="line"></div>
 <div class="section" id="contactHeading">بيانات التواصل</div>
 <div class="info"><span class="ico">☎</span><span id="phone" dir="ltr">+966 50 123 4567</span></div>
 <div class="info"><span class="ico">✉</span><span id="email" dir="ltr">ahmed.demo@example.com</span></div>
-<div class="info"><span class="ico">📍</span><span id="region">المنطقة الشرقية – السعودية</span></div>
+<div class="info"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#70451f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span><span id="region">المنطقة الشرقية – السعودية</span></div>
 <div class="actions">
 <a class="btn primary" id="call" href="tel:+966501234567">اتصال</a>
 <a class="btn secondary" id="wa" href="https://wa.me/966501234567">واتساب</a>
@@ -68,22 +68,23 @@ h1{font-size:21px;margin:0 0 5px;color:var(--brown2)}.role{font-size:13px;color:
 </div></div>
 <script>
 const reps={
- "SMT-001":{name:"أحمد محمد علي",en:"Ahmed Mohamed Ali",role:"مندوب مبيعات",roleEn:"Sales Representative",phone:"+966501234567",wa:"966501234567",email:"ahmed.demo@example.com",region:"المنطقة الشرقية – السعودية",regionEn:"Eastern Province, Saudi Arabia"},
+ "SMT-001":{name:"شريف حجازي",en:"Sherif Hegazy",role:"مندوب خرسانة",roleEn:"Concrete Sales Representative",phone:"+966570812825",wa:"966570812825",region:"الرياض – السعودية",regionEn:"Riyadh, Saudi Arabia"},
  "SMT-002":{name:"محمد علي حسن",en:"Mohamed Ali Hassan",role:"مندوب مبيعات",roleEn:"Sales Representative",phone:"+966551234567",wa:"966551234567",email:"mohamed.demo@example.com",region:"الرياض – السعودية",regionEn:"Riyadh, Saudi Arabia"},
  "SMT-003":{name:"خالد حسن محمود",en:"Khaled Hassan Mahmoud",role:"مشرف مبيعات",roleEn:"Sales Supervisor",phone:"+966561234567",wa:"966561234567",email:"khaled.demo@example.com",region:"القصيم – السعودية",regionEn:"Al-Qassim, Saudi Arabia"},
  "SMT-004":{name:"محمود إبراهيم",en:"Mahmoud Ibrahim",role:"مندوب مبيعات",roleEn:"Sales Representative",phone:"+966541234567",wa:"966541234567",email:"mahmoud.demo@example.com",region:"جدة – السعودية",regionEn:"Jeddah, Saudi Arabia"}
 };
-const params=new URLSearchParams(location.search),id=(params.get("id")||"SMT-001").toUpperCase(),rep=reps[id]||reps["SMT-001"];let english=false;
+const params=new URLSearchParams(location.search);let id=(params.get("id")||"SMT-001").toUpperCase();let rep=reps[id];const notFound=!rep&&!!params.get("id");if(!rep){id="SMT-001";rep=reps[id];}let english=false;
 function render(){
  const t={tagline:english?"SMART BUSINESS CARD":"بطاقة تعريف رقمية",companyDesc:english?"A company focused on ready-mix concrete. Contact our representative to learn more about our services.":"شركة متخصصة في مجال الخرسانة الجاهزة. تواصل مع ممثلنا لمعرفة المزيد عن خدماتنا.",repHeading:english?"COMPANY REPRESENTATIVE":"مُمثّل الشركة",servicesHeading:english?"OUR BUSINESS":"مجالات العمل",service1:english?"Ready-mix concrete":"الخرسانة الجاهزة",service2:english?"Customer service & supply":"خدمة العملاء والتوريد",contactHeading:english?"CONTACT DETAILS":"بيانات التواصل",call:english?"Call":"اتصال",mail:english?"Send email":"إرسال بريد إلكتروني",save:english?"Save contact":"حفظ جهة الاتصال",qrText:english?"Share this representative's card":"شارك بطاقة المندوب عبر هذا الرابط",footerText:english?"Official company identity":"هوية الشركة الرسمية"};
- for(const [k,v] of Object.entries(t)){const el=document.getElementById(k);if(el)el.textContent=v}
+ if(notFound){document.getElementById("main").querySelectorAll("#main > *:not(#notfound)").forEach(function(el){el.style.display="none"});document.getElementById("notfound").style.display="block";document.getElementById("nfTitle").textContent=english?"Card not found":"هذه البطاقة غير موجودة";document.getElementById("nfBody").textContent=english?"The scanned link or code is not valid. Please check the code or contact the company.":"الرابط أو الكود الذي تم مسحه غير صحيح. تأكد من الكود أو تواصل مع الشركة.";return}for(const [k,v] of Object.entries(t)){const el=document.getElementById(k);if(el)el.textContent=v}
  document.getElementById("name").textContent=english?rep.en:rep.name;document.getElementById("avatar").textContent=(english?rep.en:rep.name).trim().charAt(0);document.getElementById("role").textContent=english?rep.roleEn:rep.role;document.getElementById("repId").textContent="REPRESENTATIVE ID · "+id;
- document.getElementById("phone").textContent=rep.phone;document.getElementById("email").textContent=rep.email;document.getElementById("region").textContent=english?rep.regionEn:rep.region;
- document.getElementById("call").href="tel:"+rep.phone;document.getElementById("call").textContent=t.call;document.getElementById("wa").href="https://wa.me/"+rep.wa;document.getElementById("mail").href="mailto:"+rep.email;document.getElementById("mail").textContent=t.mail;document.getElementById("save").textContent=t.save;
+ document.getElementById("phone").textContent=rep.phone;document.getElementById("email").textContent=rep.email||"";document.getElementById("email").parentElement.style.display=rep.email?"":"none";document.getElementById("mail").style.display=rep.email?"":"none";document.getElementById("wa").style.display=rep.wa?"":"none";document.getElementById("region").textContent=english?rep.regionEn:rep.region;
+ document.getElementById("call").href="tel:"+rep.phone;document.getElementById("call").textContent=t.call;if(rep.wa)document.getElementById("wa").href="https://wa.me/"+rep.wa;if(rep.email)document.getElementById("mail").href="mailto:"+rep.email;document.getElementById("mail").textContent=t.mail;document.getElementById("save").textContent=t.save;
  document.getElementById("main").classList.toggle("en",english);document.documentElement.lang=english?"en":"ar";document.documentElement.dir=english?"ltr":"rtl";
- document.getElementById("qr").src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="+encodeURIComponent(location.href);
+ document.getElementById("qr").src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data="+encodeURIComponent("https://simta-smart-cards.pages.dev/?id="+id);
+ 
 }
 function toggleLang(){english=!english;render()}
-function downloadVcard(){const v=["BEGIN:VCARD","VERSION:3.0","FN:"+rep.en,"ORG:SIMTA Ready Mix Concrete","TITLE:"+rep.roleEn,"TEL;TYPE=CELL:"+rep.phone,"EMAIL:"+rep.email,"ADR:;;"+rep.regionEn+";;;;","END:VCARD"].join("\r\n");const blob=new Blob([v],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SIMTA-"+id+".vcf";a.click();URL.revokeObjectURL(a.href)}
+function downloadVcard(){const v=["BEGIN:VCARD","VERSION:3.0","FN:"+rep.en,"ORG:SIMTA Ready Mix Concrete","TITLE:"+rep.roleEn,"TEL;TYPE=CELL:"+rep.phone].concat(rep.email?["EMAIL:"+rep.email]:[]).concat(["ADR:;;"+rep.regionEn+";;;;","END:VCARD"]).join("\r\n");const blob=new Blob([v],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SIMTA-"+id+".vcf";a.click();URL.revokeObjectURL(a.href)}
 render();
 </script></body></html>
