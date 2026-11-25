@@ -1,0 +1,90 @@
+PASS migration fails loudly when an incompatible employees table exists
+PASS migration applies cleanly on an empty database
+PASS health
+PASS directory list without session -> 401
+PASS unauth create -> 401
+PASS unauth admin list -> 401
+PASS forged token -> 401
+PASS setup wrong token -> 403
+PASS setup weak pw -> 400
+PASS setup ok
+PASS setup only once -> 409
+PASS bad login -> 401
+PASS login ok
+PASS db stores hash of token, not token
+PASS password not stored in plain
+PASS create (id normalised)
+PASS duplicate id -> 409
+PASS bad id rejected: "SMT-1"
+PASS bad id rejected: "X-001"
+PASS bad id rejected: "SMT-001;DROP"
+PASS bad id rejected: ""
+PASS bad id rejected: "../etc"
+PASS validation errors
+PASS angle brackets stripped
+PASS extra fields stored
+PASS wrong content-type -> 415
+PASS bad json -> 400
+PASS id change rejected
+PASS active via PUT rejected
+PASS edit
+PASS public get has no internal fields
+PASS public get exposes only allowlisted keys
+PASS public get case-insens
+PASS unknown -> 404
+PASS bad id -> 400
+PASS search "SMT-003" -> 1
+PASS search "sara" -> 2
+PASS search "سارة" -> 3
+PASS search "مندوب" -> 3
+PASS search "Senior" -> 1
+PASS search "Sales" -> 3
+PASS search "المبيعات" -> 3
+PASS search "zzz" -> 0
+PASS search "100%" -> 0
+PASS search "_" -> 0
+PASS sort name_en asc
+PASS sort id desc
+PASS sort updated desc
+PASS sort injection rejected
+PASS bad dir rejected
+PASS unknown sort column rejected
+PASS photo upload
+PASS fake image rejected
+PASS svg rejected
+PASS oversize rejected
+PASS photo served with image type
+PASS create viewer
+PASS create editor
+PASS viewer can read
+PASS viewer forbidden POST /api/admin/employees
+PASS viewer forbidden PUT /api/admin/employees/SMT-001
+PASS viewer forbidden POST /api/admin/employees/SMT-001/deactivate
+PASS viewer forbidden GET /api/admin/users
+PASS viewer forbidden GET /api/admin/audit
+PASS editor cannot manage users
+PASS editor can create
+PASS deactivate
+PASS record kept after deactivate
+PASS deactivated hidden from public get (404)
+PASS directory list (with session) hides deactivated
+PASS directory list has no internal fields
+PASS directory list with forged token -> 401
+PASS deactivated photo hidden
+PASS admin sees inactive
+PASS no hard delete endpoint
+PASS reactivate
+PASS stats
+PASS audit has create/update/deactivate/photo/login_failed
+PASS audit never contains passwords
+PASS logout invalidates token
+PASS expired session -> 401
+PASS login rate limit -> 429
+PASS correct password also blocked during lockout
+PASS CORS preflight allowed origin
+PASS CORS preflight blocked origin
+PASS no ACAO for unknown origin
+PASS unknown route 404 json
+PASS missing DB -> 503
+
+88 passed, 0 failed
