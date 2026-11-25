@@ -20,7 +20,7 @@ const FIELDS = {
 const PUBLIC_COLS = "id,name_ar,name_en,title_ar,title_en,dept_ar,dept_en,phone,whatsapp,email,location_ar,location_en,photo_version";
 
 class HttpError extends Error {
-  constructor(status, code, message, details) { super(message); this.status = status; this.code = code; this.details = details; }
+  constructor(status, code, message, details, headers) { super(message); this.status = status; this.code = code; this.details = details; this.headers = headers; }
 }
 
 // ---------- helpers ----------
@@ -43,6 +43,69 @@ async function hashPassword(password, saltHex, iterations) {
 function randomHex(n) { return hex(crypto.getRandomValues(new Uint8Array(n))); }
 function checkPassword(p) {
   if (typeof p !== "string" || p.length < 12 || p.length > 200) throw new HttpError(400, "weak_password", "Password must be 12 to 200 characters");
+}
+
+// ---------- rate limiting (no database writes) ----------
+// Two layers. (1) If a Workers Rate Limiting binding named RL_<BUCKET> exists it is used (per Cloudflare location, approximate).
+// (2) A small in-memory fixed window per Worker instance, always on. Neither writes to D1, so a flood cannot grow the database.
+// Limits are per client IP per minute and are chosen for normal use: one card view is 1-2 requests.
+const RATE_DEFAULTS = { card: 60, auth: 20, api: 300, health: 30 };
+const RATE_MEM = new Map();
+async function rateLimit(request, env, bucket) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const max = Number(env["RATE_" + bucket.toUpperCase() + "_PER_MIN"]) || RATE_DEFAULTS[bucket];
+  const bound = env["RL_" + bucket.toUpperCase()];
+  let ok = true;
+  if (bound && typeof bound.limit === "function") { try { ok = (await bound.limit({ key: `${bucket}|${ip}` })).success; } catch { ok = true; } }
+  const win = Math.floor(Date.now() / 60000), k = `${bucket}|${ip}`;
+  const e = RATE_MEM.get(k);
+  const n = e && e.win === win ? e.n + 1 : 1;
+  RATE_MEM.set(k, { win, n });
+  if (RATE_MEM.size > 5000) for (const [kk, v] of RATE_MEM) if (v.win !== win) RATE_MEM.delete(kk);
+  if (!ok || n > max) throw new HttpError(429, "rate_limited", "Too many requests. Please slow down and try again in a minute.", undefined, { "Retry-After": "60" });
+}
+
+// ---------- two-factor (TOTP, RFC 6238: HMAC-SHA1, 6 digits, 30 s) ----------
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function b32encode(bytes) { let bits = 0, v = 0, out = ""; for (const b of bytes) { v = (v << 8) | b; bits += 8; while (bits >= 5) { out += B32[(v >>> (bits - 5)) & 31]; bits -= 5; } } if (bits) out += B32[(v << (5 - bits)) & 31]; return out; }
+function b32decode(str) { let bits = 0, v = 0; const out = []; for (const c of str.replace(/=+$/, "").toUpperCase()) { const i = B32.indexOf(c); if (i < 0) continue; v = (v << 5) | i; bits += 5; if (bits >= 8) { out.push((v >>> (bits - 8)) & 255); bits -= 8; } } return new Uint8Array(out); }
+async function hotp(secretBytes, counter) {
+  const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const msg = new Uint8Array(8); new DataView(msg.buffer).setUint32(4, counter >>> 0); new DataView(msg.buffer).setUint32(0, Math.floor(counter / 4294967296));
+  const h = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg));
+  const o = h[19] & 15;
+  const n = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return String(n % 1000000).padStart(6, "0");
+}
+export async function totpCode(secretB32, atMs = Date.now()) { return hotp(b32decode(secretB32), Math.floor(atMs / 30000)); }
+// Returns the accepted step (> lastStep) or 0. Window: previous, current, next step (clock drift).
+async function totpVerify(secretB32, code, lastStep, atMs = Date.now()) {
+  code = String(code || "").replace(/\s/g, "");
+  if (!/^\d{6}$/.test(code)) return 0;
+  const sb = b32decode(secretB32), cur = Math.floor(atMs / 30000);
+  let hit = 0;
+  for (const st of [cur - 1, cur, cur + 1]) { if (timingSafeEqual(await hotp(sb, st), code) && st > lastStep) hit = st; }
+  return hit;
+}
+async function totpKey(env) {
+  if (!env.TOTP_KEY || String(env.TOTP_KEY).length < 16) throw new HttpError(503, "two_factor_unavailable", "Two-factor sign-in is not configured on this server");
+  return crypto.subtle.importKey("raw", await crypto.subtle.digest("SHA-256", enc.encode("simta-totp|" + env.TOTP_KEY)), "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+async function sealSecret(env, plain, uid) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode("simta-totp-user|" + uid) }, await totpKey(env), enc.encode(plain)); return hex(iv) + ":" + hex(ct); }
+async function openSecret(env, sealed, uid) { const [iv, ct] = String(sealed).split(":"); return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unhex(iv), additionalData: enc.encode("simta-totp-user|" + uid) }, await totpKey(env), unhex(ct))); }
+
+// Phone numbers and e-mail addresses are not copied into the audit log (the data itself lives in the employees table).
+const PII_KEYS = new Set(["phone", "whatsapp", "email"]);
+function redactChanges(c) {
+  if (!c || typeof c !== "object") return c;
+  const mark = (v) => (v === null || v === undefined || v === "" ? "(empty)" : "(set)");
+  const out = {};
+  for (const [k, v] of Object.entries(c)) {
+    if (!PII_KEYS.has(k)) out[k] = v;
+    else if (v && typeof v === "object" && ("from" in v || "to" in v)) out[k] = { from: mark(v.from), to: mark(v.to) };
+    else out[k] = mark(v);
+  }
+  return out;
 }
 
 function corsHeaders(request, env) {
@@ -136,10 +199,10 @@ async function currentUser(request, env) {
   if (!m) throw new HttpError(401, "unauthenticated", "Sign in required");
   const th = await sha256Hex(m[1]);
   const row = await env.DB.prepare(
-    "SELECT u.id,u.email,u.name,u.role,u.active,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?"
+    "SELECT u.id,u.email,u.name,u.role,u.active,u.totp_enabled,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?"
   ).bind(th).first();
   if (!row || !row.active || row.expires_at < nowIso()) throw new HttpError(401, "unauthenticated", "Session expired or invalid");
-  return { id: row.id, email: row.email, name: row.name, role: row.role, token_hash: th };
+  return { id: row.id, email: row.email, name: row.name, role: row.role, two_factor: !!row.totp_enabled, token_hash: th };
 }
 const RANK = { viewer: 1, editor: 2, admin: 3 };
 function requireRole(user, role) {
@@ -148,10 +211,19 @@ function requireRole(user, role) {
 function auditStmt(env, user, request, action, entity, entityId, changes) {
   return env.DB.prepare("INSERT INTO audit_log (ts,user_id,user_email,action,entity,entity_id,changes,ip) VALUES (?,?,?,?,?,?,?,?)")
     .bind(nowIso(), user ? user.id : null, user ? user.email : null, action, entity, entityId || null,
-      changes ? JSON.stringify(changes).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null);
+      changes ? JSON.stringify(redactChanges(changes)).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null);
 }
 async function audit(...a) { await auditStmt(...a).run(); }
 // Run the data change and its audit row in ONE D1 batch (a transaction): either both are stored or neither.
+// Wrong-code cap for the signed-in 2FA enable/disable steps (5 per user per 15 minutes, stored in D1 like the login lockout).
+async function twoFaGuard(env, user) {
+  const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key=? AND ts>?").bind("2fa|" + user.id, Date.now() - 15 * 60 * 1000).first();
+  if (c.n >= 5) throw new HttpError(429, "too_many_attempts", "Too many wrong codes. Try again in 15 minutes.");
+}
+async function twoFaFail(env, user, status, code, msg) {
+  await env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind("2fa|" + user.id, Date.now()).run();
+  throw new HttpError(status, code, msg);
+}
 async function commit(env, ...stmts) { return env.DB.batch(stmts); }
 async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
   checkPassword(password);
@@ -186,19 +258,33 @@ async function login(request, env) {
   // Always run the hash so response time does not reveal whether the user exists.
   const salt = u ? u.salt : "00".repeat(16);
   const h = await hashPassword(password, salt, u ? u.iterations : PBKDF2_ITER);
-  if (!u || !u.active || !timingSafeEqual(h, u.pass_hash)) {
+  let totpStep = 0, totpBad = false;
+  if (u && u.active && timingSafeEqual(h, u.pass_hash) && u.totp_enabled) {
+    if (!body.totp) throw new HttpError(401, "totp_required", "Enter the 6-digit code from your authenticator app");
+    try { totpStep = await totpVerify(await openSecret(env, u.totp_secret, u.id), body.totp, u.totp_last_step); } catch (e) { if (e instanceof HttpError) throw e; totpStep = 0; }
+    totpBad = !totpStep;
+  }
+  if (!u || !u.active || !timingSafeEqual(h, u.pass_hash) || totpBad) {
     await commit(env, env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()), env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(ipKey, Date.now()),
-      auditStmt(env, null, request, "login_failed", "user", email.slice(0, 100), null));
+      auditStmt(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null)); // never store text that may be a mistyped password
     await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
   await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run();
+  if (totpStep) {
+    // Atomic replay guard: only one concurrent login can advance totp_last_step past this code's step.
+    const adv = await env.DB.prepare("UPDATE users SET totp_last_step=? WHERE id=? AND totp_last_step<?").bind(totpStep, u.id, totpStep).run();
+    if (!adv.meta || adv.meta.changes !== 1) {
+      await commit(env, env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()), env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(ipKey, Date.now()));
+      throw new HttpError(401, "invalid_credentials", "Invalid email or password");
+    }
+  }
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(nowIso()).run();
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
   await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)").bind(await sha256Hex(token), u.id, nowIso(), expires).run();
   await audit(env, { id: u.id, email: u.email }, request, "login", "user", String(u.id), null);
-  return { token, expires_at: expires, user: { id: u.id, email: u.email, name: u.name, role: u.role } };
+  return { token, expires_at: expires, user: { id: u.id, email: u.email, name: u.name, role: u.role, two_factor: !!u.totp_enabled } };
 }
 
 // ---------- routes ----------
@@ -220,6 +306,7 @@ async function route(request, env) {
   let m;
 
   if ((path === "/health" || path === "/api/health") && method === "GET") {
+    await rateLimit(request, env, "health");
     let db = "unbound";
     if (env.DB) { try { await env.DB.prepare("SELECT 1").first(); db = "bound"; } catch { db = "error"; } }
     return json({ ok: true, service: "SIMTA Cards API", mode: env.ENVIRONMENT || "staging", database: db });
@@ -242,6 +329,7 @@ async function route(request, env) {
     return json(results.map((r) => publicEmployee(r, env)), 200, { "X-Total-Count": String(tot.n) }); // bare array; total in header
   }
   if ((m = path.match(/^\/api\/employees\/([^/]+)$/)) && method === "GET") {
+    await rateLimit(request, env, "card");
     const id = normalizeId(safeDecode(m[1]));
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
     const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS} FROM employees WHERE id=? AND active=1`).bind(id).first();
@@ -249,6 +337,7 @@ async function route(request, env) {
     return json(publicEmployee(r, env), 200); // bare object
   }
   if ((m = path.match(/^\/api\/photos\/([^/]+)$/)) && method === "GET") {
+    await rateLimit(request, env, "card");
     const id = normalizeId(safeDecode(m[1]));
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
     const p = await env.DB.prepare("SELECT p.mime,p.data_b64 FROM employee_photos p JOIN employees e ON e.id=p.employee_id WHERE p.employee_id=? AND e.active=1").bind(id).first();
@@ -268,14 +357,48 @@ async function route(request, env) {
     await audit(env, { id: u.id, email: u.email }, request, "setup_admin", "user", String(u.id), null);
     return json({ ok: true, user: u }, 201);
   }
-  if (path === "/api/auth/login" && method === "POST") return json(await login(request, env));
+  if (path === "/api/auth/login" && method === "POST") { await rateLimit(request, env, "auth"); return json(await login(request, env)); }
 
   // ---- authenticated ----
   if (path.startsWith("/api/auth/") || path.startsWith("/api/admin/")) {
+    await rateLimit(request, env, "api");
     const user = await currentUser(request, env);
     request._u = user; // lets the top-level handler audit a role denial
+    // Optional enforcement: with REQUIRE_2FA=true, accounts without 2FA can only reach the /api/auth/ endpoints (to set it up).
+    if (String(env.REQUIRE_2FA) === "true" && !user.two_factor && !path.startsWith("/api/auth/")) throw new HttpError(403, "two_factor_required", "Two-factor sign-in must be enabled for this account first");
 
-    if (path === "/api/auth/me" && method === "GET") return json({ user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+    if (path === "/api/auth/me" && method === "GET") return json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, two_factor: user.two_factor } });
+    if (path === "/api/auth/2fa/setup" && method === "POST") {
+      if (user.two_factor) throw new HttpError(409, "already_enabled", "Two-factor sign-in is already enabled");
+      const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
+      await env.DB.prepare("UPDATE users SET totp_secret=?, totp_enabled=0, totp_last_step=0 WHERE id=?").bind(await sealSecret(env, secret, user.id), user.id).run();
+      return json({ secret, otpauth_uri: `otpauth://totp/SIMTA%20Cards:${encodeURIComponent(user.email)}?secret=${secret}&issuer=SIMTA%20Cards&algorithm=SHA1&digits=6&period=30` });
+    }
+    if (path === "/api/auth/2fa/enable" && method === "POST") {
+      const b = await readJson(request);
+      await twoFaGuard(env, user);
+      const row = await env.DB.prepare("SELECT totp_secret,totp_enabled FROM users WHERE id=?").bind(user.id).first();
+      if (row.totp_enabled) throw new HttpError(409, "already_enabled", "Two-factor sign-in is already enabled");
+      if (!row.totp_secret) throw new HttpError(409, "not_started", "Start 2FA setup first");
+      const step = await totpVerify(await openSecret(env, row.totp_secret, user.id), b.code, 0);
+      if (!step) await twoFaFail(env, user, 422, "bad_code", "That code is not valid");
+      await commit(env, env.DB.prepare("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?").bind(step, user.id),
+        env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").bind(user.id, user.token_hash),
+        auditStmt(env, user, request, "2fa_enable", "user", String(user.id), null));
+      return json({ ok: true });
+    }
+    if (path === "/api/auth/2fa/disable" && method === "POST") {
+      const b = await readJson(request);
+      await twoFaGuard(env, user);
+      const row = await env.DB.prepare("SELECT * FROM users WHERE id=?").bind(user.id).first();
+      if (!row.totp_enabled) throw new HttpError(409, "not_enabled", "Two-factor sign-in is not enabled");
+      const okPw = timingSafeEqual(await hashPassword(String(b.password || ""), row.salt, row.iterations), row.pass_hash);
+      const step = okPw ? await totpVerify(await openSecret(env, row.totp_secret, user.id), b.code, row.totp_last_step) : 0;
+      if (!okPw || !step) await twoFaFail(env, user, 403, "forbidden", "Password or code is not valid");
+      await commit(env, env.DB.prepare("UPDATE users SET totp_enabled=0, totp_secret=NULL, totp_last_step=0 WHERE id=?").bind(user.id),
+        auditStmt(env, user, request, "2fa_disable", "user", String(user.id), null));
+      return json({ ok: true });
+    }
     if (path === "/api/auth/logout" && method === "POST") {
       await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(user.token_hash).run();
       await audit(env, user, request, "logout", "user", String(user.id), null);
@@ -399,7 +522,7 @@ async function route(request, env) {
     }
     if (path === "/api/admin/users" && method === "GET") {
       requireRole(user, "admin");
-      const { results } = await env.DB.prepare("SELECT id,email,name,role,active,created_at FROM users ORDER BY id").all();
+      const { results } = await env.DB.prepare("SELECT id,email,name,role,active,totp_enabled AS two_factor,created_at FROM users ORDER BY id").all();
       return json({ users: results });
     }
     if (path === "/api/admin/users" && method === "POST") {
@@ -424,9 +547,10 @@ async function route(request, env) {
       if ("role" in b) { if (!RANK[b.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" }); sets.push("role=?"); binds.push(b.role); }
       if ("active" in b) { sets.push("active=?"); binds.push(b.active ? 1 : 0); }
       if ("password" in b) { checkPassword(b.password); const salt = randomHex(16); sets.push("salt=?", "pass_hash=?", "iterations=?"); binds.push(salt, await hashPassword(b.password, salt, PBKDF2_ITER), PBKDF2_ITER); }
+      if (b.reset_2fa === true) sets.push("totp_enabled=0", "totp_secret=NULL", "totp_last_step=0");
       if (!sets.length) throw new HttpError(400, "nothing_to_update", "Nothing to update");
       const ops = [env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid)];
-      if ("password" in b || "role" in b || b.active === false) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // role change also ends old sessions
+      if ("password" in b || "role" in b || b.active === false || b.reset_2fa === true) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // role change also ends old sessions
       ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b }));
       await commit(env, ...ops);
       return json({ ok: true });
@@ -453,11 +577,14 @@ export default {
           if (c.n < 20) await audit(env, u, request, "denied", "request", new URL(request.url).pathname.slice(0, 120), { method: request.method, role: u.role });
         } catch {}
       }
-      if (e instanceof HttpError) res = json({ error: e.message, code: e.code, ...(e.details ? { details: e.details } : {}) }, e.status);
+      if (e instanceof HttpError) res = json({ error: e.message, code: e.code, ...(e.details ? { details: e.details } : {}) }, e.status, e.headers || {});
       else { console.error("unhandled", e && e.message); res = json({ error: "Internal error", code: "internal" }, 500); }
     }
     const h = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) h.set(k, v);
+    // Security headers on every API response (set only if the route did not set its own).
+    const sec = { "Strict-Transport-Security": "max-age=31536000", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'", "Permissions-Policy": "camera=(), microphone=(), geolocation=()", "X-Content-Type-Options": "nosniff" };
+    for (const [k, v] of Object.entries(sec)) if (!h.has(k)) h.set(k, v);
     return new Response(res.body, { status: res.status, headers: h });
   },
 };
