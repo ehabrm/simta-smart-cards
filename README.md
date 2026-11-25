@@ -7,7 +7,7 @@ Primary site: https://simta-smart-cards.pages.dev (this repo, branch `main`, aut
 - `/card.html?id=...`: same card page.
 - `/admin.html`: admin panel (cards, users, audit log, pause/resume site).
 - `qrcode.js`: local QR generator used by the admin.
-- `worker/`: API source (not a public page; requests to /worker/* are redirected to the card page).
+- `worker/`: API source (no secrets in it). /_redirects tries to send /worker/* to the card page; if Pages still serves those files that is source only, not a card page.
 
 ## API and data
 Cloudflare Worker `simta-cards-prod` with D1 `simta-cards-prod-db`
