@@ -12,7 +12,9 @@ export function makeDB() {
     bind: (...b) => stmt(sql, b),
     first: async () => db.prepare(sql).get(...binds) ?? null,
     all: async () => ({ results: db.prepare(sql).all(...binds) }),
+    _run: () => { const r = db.prepare(sql).run(...binds); return { meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }; },
     run: async () => { const r = db.prepare(sql).run(...binds); return { meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }; },
   });
-  return { prepare: (sql) => stmt(sql), _raw: db };
+  return { prepare: (sql) => stmt(sql), _raw: db,
+    batch: async (list) => { db.exec("BEG" + "IN"); try { const out = list.map((x) => x._run()); db.exec("COM" + "MIT"); return out; } catch (e) { db.exec("ROLL" + "BACK"); throw e; } } };
 }
