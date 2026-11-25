@@ -16,7 +16,7 @@ CARD_BASE_URL = "https://simta-smart-cards.pages.dev/card.html"
 binding = "DB"
 database_name = "simta-cards-prod-db"
 # database_id: copy from Cloudflare dashboard > D1 > simta-cards-prod-db
-database_id = "REPLACE_WITH_PROD_D1_ID"
+database_id = "3bd40999-7838-4500-9df7-b9569a376e2f"
 migrations_dir = "migrations"
 
 # Secrets (never in this file): SETUP_TOKEN (only used once to create the first admin)
