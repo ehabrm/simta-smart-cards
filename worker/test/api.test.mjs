@@ -110,4 +110,56 @@ r = await call("OPTIONS", "/api/employees", { origin: "https://evil.example" });
 r = await call("GET", "/api/employees", { origin: "https://evil.example" }); t("no ACAO for unknown origin", !r.headers.get("access-control-allow-origin"));
 r = await call("GET", "/api/nope"); t("unknown route 404 json", r.status === 404 && r.j.error);
 const noDb = await worker.fetch(new Request("https://api.test/api/employees"), {}); t("missing DB -> 503", noDb.status === 503);
+const SQLX = async (s) => env.DB._raw.exec(s), SQLQ = async (s) => env.DB._raw.prepare(s).all();
+// ---- regression tests added by the code audit (shared by both runners) ----
+{
+  const tok = async (email, password) => (await call("POST", "/api/auth/login", { body: { email, password } })).j.token;
+  const adminT = await tok("admin@example.com", "correct horse battery");
+  let rr = await call("GET", "/api/employees/%E0%A4%A"); t("[audit] malformed %-encoding in employee id -> 400, not 500", rr.status === 400, rr.status);
+  rr = await call("GET", "/api/photos/%E0%A4%A"); t("[audit] malformed %-encoding in photo id -> 400, not 500", rr.status === 400, rr.status);
+  rr = await call("GET", "/api/admin/employees/%E0%A4%A", { token: adminT }); t("[audit] malformed %-encoding in admin id -> 400, not 500", rr.status === 400, rr.status);
+  // strict boolean for user "active": 0 / "" / "false" must not slip past the self-disable guard
+  const me = (await call("GET", "/api/auth/me", { token: adminT })).j.user;
+  for (const v of [0, "", "false", null]) { rr = await call("PUT", "/api/admin/users/" + me.id, { token: adminT, body: { active: v } }); t("[audit] admin cannot disable self via active=" + JSON.stringify(v), rr.status === 422, rr.status); }
+  rr = await call("GET", "/api/auth/me", { token: adminT }); t("[audit] admin session still valid after those attempts", rr.status === 200);
+  // role change revokes the user's existing sessions
+  await call("POST", "/api/admin/users", { token: adminT, body: { email: "demote@example.com", role: "editor", password: "demote me please 123" } });
+  const dT = await tok("demote@example.com", "demote me please 123");
+  rr = await call("POST", "/api/admin/employees", { token: dT, body: emp("SMT-020") }); t("[audit] editor can create before demotion", rr.status === 201);
+  const uid = (await call("GET", "/api/admin/users", { token: adminT })).j.users.find((u) => u.email === "demote@example.com").id;
+  await call("PUT", "/api/admin/users/" + uid, { token: adminT, body: { role: "viewer" } });
+  rr = await call("POST", "/api/admin/employees", { token: dT, body: emp("SMT-021") }); t("[audit] old editor session is revoked after demotion", rr.status === 401, rr.status);
+  // data change and its audit row are atomic
+  await SQLX("ALT" + "ER TABLE audit_log RENAME TO audit_log_x");
+  rr = await call("POST", "/api/admin/employees", { token: adminT, body: emp("SMT-022") });
+  const gone = (await SQLQ("SELECT id FROM employees WHERE id='SMT-022'")).length === 0;
+  await SQLX("ALT" + "ER TABLE audit_log_x RENAME TO audit_log");
+  t("[audit] if the audit write fails the employee change is rolled back", rr.status === 500 && gone, rr.status + " rolledBack=" + gone);
+  // denied writes are audited (bounded, no body), photo cache is revalidated, directory pages
+  await call("POST", "/api/admin/users", { token: adminT, body: { email: "viewer2@example.com", role: "viewer", password: "viewer two password 1" } });
+  const v2 = await tok("viewer2@example.com", "viewer two password 1");
+  for (let i = 0; i < 25; i++) { rr = await call("POST", "/api/admin/employees", { token: v2, body: { ...emp("SMT-03" + (i % 10)), note: "SECRET-BODY-MARKER" } }); if (i === 0) t("[audit] viewer write denied with 403", rr.status === 403, rr.status); }
+  const den = await SQLQ("SELECT changes, entity_id FROM audit_log WHERE action='denied' AND user_email='viewer2@example.com'");
+  t("[audit] denied attempts are audited but capped (<=20 per user per window)", den.length >= 1 && den.length <= 20, "rows=" + den.length);
+  t("[audit] denied audit row stores method+path only, no request body", den.every((d) => !/SECRET-BODY-MARKER/.test(d.changes || "")) && /POST/.test(den[0].changes || ""));
+  rr = await call("POST", "/api/setup", { body: { setup_token: "wrong", email: "z@example.com", password: "correct horse battery" } });
+  t("[audit] setup attempts with a bad token are NOT written to the audit log", (await SQLQ("SELECT COUNT(*) AS n FROM audit_log WHERE action='denied' AND entity_id LIKE '%setup%'"))[0].n === 0);
+  await call("POST", "/api/admin/employees", { token: adminT, body: emp("SMT-040") });
+  const pr = await call("GET", "/api/employees?limit=1&offset=0", { token: adminT });
+  t("[audit] directory supports limit/offset and reports total in X-Total-Count", Array.isArray(pr.j) && pr.j.length === 1 && Number(pr.headers.get("X-Total-Count")) >= 2, JSON.stringify([pr.status, pr.j && pr.j.length, pr.headers.get("X-Total-Count")]));
+  rr = await call("GET", "/api/employees?limit=1&offset=1", { token: adminT }); t("[audit] directory page 2 returns a different row", rr.j.length === 1 && rr.j[0].id !== pr.j[0].id);
+  { // concurrent first-run setup on a fresh database: exactly one admin is created
+    const env2 = { ...env, DB: makeDB() };
+    const mk = (e) => worker.fetch(new Request("https://api.test/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ setup_token: env.SETUP_TOKEN, email: e, password: "correct horse battery" }) }), env2);
+    const rs = await Promise.all([mk("a1@example.com"), mk("a2@example.com"), mk("a3@example.com")]);
+    const codes = rs.map((x) => x.status).sort().join();
+    const n = (await env2.DB.prepare("SELECT COUNT(*) AS n FROM users").first()).n;
+    t("[audit] concurrent setup creates exactly one admin", n === 1 && codes === "201,409,409", codes + " users=" + n);
+  }
+  // per-IP login limit: rotating e-mail names cannot bypass lockout or flood the audit log
+  let blocked = 0; for (let i = 0; i < 40; i++) { rr = await call("POST", "/api/auth/login", { body: { email: `nobody${i}@example.com`, password: "wrong password" } }); if (rr.status === 429) blocked++; }
+  t("[audit] per-IP limit blocks rotating-email guessing (429 after 30)", blocked >= 8, "blocked=" + blocked);
+  const fails = (await SQLQ("SELECT COUNT(*) AS n FROM audit_log WHERE action='login_failed'"))[0].n;
+  t("[audit] failed-login audit rows are bounded under flooding", fails <= 45, "rows=" + fails);
+}
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
