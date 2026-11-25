@@ -1,0 +1,113 @@
+import worker from "../src/index.js";
+import { makeDB } from "./mock-d1.mjs";
+const ORIGIN = "https://admin.example.test";
+const env = { DB: makeDB(), ALLOWED_ORIGINS: ORIGIN, CARD_BASE_URL: "https://cards.example.test/card.html", SETUP_TOKEN: "setup-token-for-tests", ENVIRONMENT: "staging" };
+import { DatabaseSync } from "node:sqlite"; import fs from "node:fs";
+let pass = 0, fail = 0;
+{ // migration must fail loudly on a pre-existing incompatible table
+  const d = new DatabaseSync(":memory:"); d.exec("CREATE TABLE employees (id TEXT, name TEXT)");
+  let threw = false; try { d.exec(fs.readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8")); } catch (e) { threw = /already exists/.test(String(e.message)); }
+  console.log((threw ? "PASS" : "FAIL") + " migration fails loudly when an incompatible employees table exists"); threw ? pass++ : fail++;
+  const d2 = new DatabaseSync(":memory:"); let ok = true; try { d2.exec(fs.readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8")); } catch { ok = false; }
+  console.log((ok ? "PASS" : "FAIL") + " migration applies cleanly on an empty database"); ok ? pass++ : fail++;
+}
+const t = (name, ok, extra = "") => { (ok ? pass++ : fail++); console.log((ok ? "PASS " : "FAIL ") + name + (ok ? "" : "  " + extra)); };
+async function call(method, path, { body, token, raw, ct, origin } = {}) {
+  const headers = {};
+  if (token) headers.Authorization = "Bearer " + token;
+  if (origin) headers.Origin = origin;
+  let b;
+  if (raw !== undefined) { headers["Content-Type"] = ct; b = raw; } else if (body !== undefined) { headers["Content-Type"] = "application/json"; b = JSON.stringify(body); }
+  const r = await worker.fetch(new Request("https://api.test" + path, { method, headers, body: b }), env);
+  const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch {}
+  return { status: r.status, j, headers: r.headers, text };
+}
+const emp = (id, o = {}) => ({ id, name_ar: "سارة نموذج", name_en: "Sara Sample", title_ar: "مندوب خرسانة", title_en: "Concrete Sales Representative", department: "sales", dept_ar: "المبيعات", dept_en: "Sales", phone: "+1 202 555 0101", whatsapp: "12025550101", email: "sara.demo@example.com", location_ar: "المدينة التجريبية", location_en: "Demo City", ...o });
+
+let r = await call("GET", "/api/health"); t("health", r.j.ok && r.j.database === "bound");
+r = await call("GET", "/api/employees"); t("directory list without session -> 401", r.status === 401);
+r = await call("POST", "/api/admin/employees", { body: emp("SMT-001") }); t("unauth create -> 401", r.status === 401);
+r = await call("GET", "/api/admin/employees"); t("unauth admin list -> 401", r.status === 401);
+r = await call("POST", "/api/admin/employees", { body: emp("SMT-001"), token: "a".repeat(64) }); t("forged token -> 401", r.status === 401);
+r = await call("POST", "/api/setup", { body: { setup_token: "wrong", email: "a@b.co", password: "correct horse battery" } }); t("setup wrong token -> 403", r.status === 403);
+r = await call("POST", "/api/setup", { body: { setup_token: env.SETUP_TOKEN, email: "admin@example.com", password: "short" } }); t("setup weak pw -> 400", r.status === 400);
+r = await call("POST", "/api/setup", { body: { setup_token: env.SETUP_TOKEN, email: "admin@example.com", name: "Admin", password: "correct horse battery" } }); t("setup ok", r.status === 201);
+r = await call("POST", "/api/setup", { body: { setup_token: env.SETUP_TOKEN, email: "x@example.com", password: "correct horse battery" } }); t("setup only once -> 409", r.status === 409);
+r = await call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "nope" } }); t("bad login -> 401", r.status === 401);
+r = await call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "correct horse battery" } }); t("login ok", r.status === 200 && /^[0-9a-f]{64}$/.test(r.j.token));
+const admin = r.j.token;
+t("db stores hash of token, not token", !JSON.stringify(env.DB._raw.prepare("SELECT * FROM sessions").all()).includes(admin));
+t("password not stored in plain", !JSON.stringify(env.DB._raw.prepare("SELECT * FROM users").all()).includes("correct horse"));
+
+// employees
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("smt-001") }); t("create (id normalised)", r.status === 201 && r.j.employee.id === "SMT-001" && r.j.employee.phone === "+12025550101", JSON.stringify(r.j));
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-001") }); t("duplicate id -> 409", r.status === 409);
+for (const bad of ["SMT-1", "X-001", "SMT-001;DROP", "", "../etc"]) { r = await call("POST", "/api/admin/employees", { token: admin, body: emp(bad) }); t("bad id rejected: " + JSON.stringify(bad), r.status === 422, r.status); }
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-002", { phone: "abc", email: "nope", name_ar: "" }) }); t("validation errors", r.status === 422 && r.j.details.phone && r.j.details.email && r.j.details.name_ar);
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-002", { name_en: "<script>alert(1)</script>Evil" }) }); t("angle brackets stripped", r.status === 201 && !r.j.employee.name_en.includes("<"));
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-003", { extra: { badge: "A1" } }) }); t("extra fields stored", r.j.employee.extra.badge === "A1");
+r = await call("POST", "/api/admin/employees", { token: admin, raw: "{}", ct: "text/plain" }); t("wrong content-type -> 415", r.status === 415);
+r = await call("POST", "/api/admin/employees", { token: admin, raw: "{bad", ct: "application/json" }); t("bad json -> 400", r.status === 400);
+r = await call("PUT", "/api/admin/employees/SMT-001", { token: admin, body: { title_en: "Senior Rep", id: "SMT-009" } }); t("id change rejected", r.status === 422);
+r = await call("PUT", "/api/admin/employees/SMT-001", { token: admin, body: { title_en: "Senior Rep", active: false } }); t("active via PUT rejected", r.status === 422);
+r = await call("PUT", "/api/admin/employees/SMT-001", { token: admin, body: { title_en: "Senior Rep" } }); t("edit", r.status === 200 && r.j.employee.title_en === "Senior Rep" && r.j.employee.name_en === "Sara Sample");
+r = await call("GET", "/api/employees/SMT-001"); t("public get has no internal fields", r.status === 200 && !("created_by" in r.j) && !("active" in r.j) && !("extra" in r.j) && !("department" in r.j) && !("updated_by" in r.j) && r.j.card_url.endsWith("?id=SMT-001"));
+t("public get exposes only allowlisted keys", Object.keys(r.j).sort().join() === "card_url,dept_ar,dept_en,email,id,location_ar,location_en,name_ar,name_en,phone,photo_url,title_ar,title_en,whatsapp");
+r = await call("GET", "/api/employees/smt-001"); t("public get case-insens", r.status === 200);
+r = await call("GET", "/api/employees/SMT-404"); t("unknown -> 404", r.status === 404 && typeof r.j.error === "string");
+r = await call("GET", "/api/employees/bad%20id"); t("bad id -> 400", r.status === 400);
+// search
+for (const [q, n] of [["SMT-003", 1], ["sara", 2], ["سارة", 3], ["مندوب", 3], ["Senior", 1], ["Sales", 3], ["المبيعات", 3], ["zzz", 0], ["100%", 0], ["_", 0]]) { r = await call("GET", "/api/admin/employees?q=" + encodeURIComponent(q), { token: admin }); t(`search "${q}" -> ${n}`, r.j.employees.length === n, r.j.employees?.length); }
+// sorting
+r = await call("GET", "/api/admin/employees?sort=name_en&dir=asc", { token: admin }); { const n = r.j.employees.map((e) => e.name_en); t("sort name_en asc", r.status === 200 && JSON.stringify(n) === JSON.stringify([...n].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1)), n.join()); }
+r = await call("GET", "/api/admin/employees?sort=id&dir=desc", { token: admin }); t("sort id desc", r.j.employees.map((e) => e.id).join() === "SMT-003,SMT-002,SMT-001", r.j.employees.map((e) => e.id).join());
+r = await call("GET", "/api/admin/employees?sort=updated&dir=desc", { token: admin }); t("sort updated desc", r.status === 200);
+r = await call("GET", "/api/admin/employees?sort=id;DROP%20TABLE%20employees", { token: admin }); t("sort injection rejected", r.status === 400);
+r = await call("GET", "/api/admin/employees?sort=id&dir=sideways", { token: admin }); t("bad dir rejected", r.status === 400);
+r = await call("GET", "/api/admin/employees?sort=password", { token: admin }); t("unknown sort column rejected", r.status === 400);
+// photo
+const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0, 0, 0, 0]);
+r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: png, ct: "image/png" }); t("photo upload", r.status === 200 && r.j.employee.photo_url.includes("v=1"));
+r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new TextEncoder().encode("<svg onload=alert(1)>"), ct: "image/png" }); t("fake image rejected", r.status === 415);
+r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new TextEncoder().encode("<svg/>"), ct: "image/svg+xml" }); t("svg rejected", r.status === 415);
+r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new Uint8Array(400 * 1024).fill(0xff), ct: "image/jpeg" }); t("oversize rejected", r.status === 413);
+r = await call("GET", "/api/photos/SMT-001"); t("photo served with image type", r.status === 200 && r.headers.get("content-type") === "image/png");
+// roles
+r = await call("POST", "/api/admin/users", { token: admin, body: { email: "viewer@example.com", role: "viewer", password: "viewer password 123" } }); t("create viewer", r.status === 201);
+r = await call("POST", "/api/admin/users", { token: admin, body: { email: "editor@example.com", role: "editor", password: "editor password 123" } }); t("create editor", r.status === 201);
+const viewer = (await call("POST", "/api/auth/login", { body: { email: "viewer@example.com", password: "viewer password 123" } })).j.token;
+const editor = (await call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: "editor password 123" } })).j.token;
+r = await call("GET", "/api/admin/employees", { token: viewer }); t("viewer can read", r.status === 200);
+for (const [m, p, b] of [["POST", "/api/admin/employees", emp("SMT-010")], ["PUT", "/api/admin/employees/SMT-001", { title_en: "x" }], ["POST", "/api/admin/employees/SMT-001/deactivate"], ["GET", "/api/admin/users"], ["GET", "/api/admin/audit"]]) { r = await call(m, p, { token: viewer, body: b }); t(`viewer forbidden ${m} ${p}`, r.status === 403, r.status); }
+r = await call("GET", "/api/admin/users", { token: editor }); t("editor cannot manage users", r.status === 403);
+r = await call("POST", "/api/admin/employees", { token: editor, body: emp("SMT-010") }); t("editor can create", r.status === 201);
+// deactivate
+r = await call("POST", "/api/admin/employees/SMT-001/deactivate", { token: editor }); t("deactivate", r.status === 200 && r.j.employee.active === false);
+t("record kept after deactivate", !!env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-001'").get());
+r = await call("GET", "/api/employees/SMT-001"); t("deactivated hidden from public get (404)", r.status === 404);
+r = await call("GET", "/api/employees", { token: admin }); t("directory list (with session) hides deactivated", Array.isArray(r.j) && !r.j.some((e) => e.id === "SMT-001") && r.j.length >= 1);
+t("directory list has no internal fields", r.j.every((e) => !("extra" in e) && !("department" in e) && !("active" in e) && !("created_by" in e)));
+r = await call("GET", "/api/employees", { token: "b".repeat(64) }); t("directory list with forged token -> 401", r.status === 401);
+r = await call("GET", "/api/photos/SMT-001"); t("deactivated photo hidden", r.status === 404);
+r = await call("GET", "/api/admin/employees?status=inactive", { token: admin }); t("admin sees inactive", r.j.total === 1);
+r = await call("DELETE", "/api/admin/employees/SMT-001", { token: admin }); t("no hard delete endpoint", r.status === 405);
+r = await call("POST", "/api/admin/employees/SMT-001/reactivate", { token: editor }); t("reactivate", r.j.employee.active === true);
+r = await call("GET", "/api/admin/stats", { token: admin }); t("stats", r.j.total === 4 && r.j.active === 4, JSON.stringify(r.j));
+// audit
+r = await call("GET", "/api/admin/audit?limit=200", { token: admin }); const acts = r.j.entries.map((e) => e.action);
+t("audit has create/update/deactivate/photo/login_failed", ["create", "update", "deactivate", "reactivate", "photo_set", "login_failed", "login"].every((a) => acts.includes(a)), acts.join());
+t("audit never contains passwords", !JSON.stringify(r.j).includes("correct horse"));
+// logout, session
+r = await call("POST", "/api/auth/logout", { token: viewer }); r = await call("GET", "/api/admin/employees", { token: viewer }); t("logout invalidates token", r.status === 401);
+env.DB._raw.exec("UPDATE sessions SET expires_at='2000-01-01T00:00:00Z' WHERE user_id=1");
+r = await call("GET", "/api/admin/employees", { token: admin }); t("expired session -> 401", r.status === 401);
+// rate limit
+let last; for (let i = 0; i < 6; i++) last = await call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: "wrong" + i } }); t("login rate limit -> 429", last.status === 429);
+r = await call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: "editor password 123" } }); t("correct password also blocked during lockout", r.status === 429);
+// CORS
+r = await call("OPTIONS", "/api/employees", { origin: ORIGIN }); t("CORS preflight allowed origin", r.status === 204 && r.headers.get("access-control-allow-origin") === ORIGIN);
+r = await call("OPTIONS", "/api/employees", { origin: "https://evil.example" }); t("CORS preflight blocked origin", r.status === 403 && !r.headers.get("access-control-allow-origin"));
+r = await call("GET", "/api/employees", { origin: "https://evil.example" }); t("no ACAO for unknown origin", !r.headers.get("access-control-allow-origin"));
+r = await call("GET", "/api/nope"); t("unknown route 404 json", r.status === 404 && r.j.error);
+const noDb = await worker.fetch(new Request("https://api.test/api/employees"), {}); t("missing DB -> 503", noDb.status === 503);
+console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
