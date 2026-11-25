@@ -145,12 +145,15 @@ const RANK = { viewer: 1, editor: 2, admin: 3 };
 function requireRole(user, role) {
   if (RANK[user.role] < RANK[role]) throw new HttpError(403, "forbidden", "Your role does not allow this action");
 }
-async function audit(env, user, request, action, entity, entityId, changes) {
-  await env.DB.prepare("INSERT INTO audit_log (ts,user_id,user_email,action,entity,entity_id,changes,ip) VALUES (?,?,?,?,?,?,?,?)")
+function auditStmt(env, user, request, action, entity, entityId, changes) {
+  return env.DB.prepare("INSERT INTO audit_log (ts,user_id,user_email,action,entity,entity_id,changes,ip) VALUES (?,?,?,?,?,?,?,?)")
     .bind(nowIso(), user ? user.id : null, user ? user.email : null, action, entity, entityId || null,
-      changes ? JSON.stringify(changes).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null).run();
+      changes ? JSON.stringify(changes).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null);
 }
-async function createUser(env, { email, name, role, password }) {
+async function audit(...a) { await auditStmt(...a).run(); }
+// Run the data change and its audit row in ONE D1 batch (a transaction): either both are stored or neither.
+async function commit(env, ...stmts) { return env.DB.batch(stmts); }
+async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
   checkPassword(password);
   email = String(email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) throw new HttpError(422, "validation_failed", "Validation failed", { email: "invalid email" });
@@ -158,8 +161,10 @@ async function createUser(env, { email, name, role, password }) {
   const salt = randomHex(16);
   const hash = await hashPassword(password, salt, PBKDF2_ITER);
   try {
-    const r = await env.DB.prepare("INSERT INTO users (email,name,role,salt,pass_hash,iterations,active,created_at) VALUES (?,?,?,?,?,?,1,?)")
+    // onlyIfEmpty (first-run setup): one atomic statement, so two concurrent setups cannot both create an admin.
+    const r = await env.DB.prepare(`INSERT INTO users (email,name,role,salt,pass_hash,iterations,active,created_at) ${onlyIfEmpty ? "SELECT ?,?,?,?,?,?,1,? WHERE NOT EXISTS (SELECT 1 FROM users)" : "VALUES (?,?,?,?,?,?,1,?)"}`)
       .bind(email, cleanStr(name || "").slice(0, 100), role, salt, hash, PBKDF2_ITER, nowIso()).run();
+    if (onlyIfEmpty && !r.meta.changes) throw new HttpError(409, "already_setup", "Setup already completed");
     return { id: r.meta.last_row_id, email, role };
   } catch (e) {
     if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, "exists", "A user with this email already exists");
@@ -171,17 +176,20 @@ async function login(request, env) {
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  const key = `${email}|${ip}`;
+  const key = `${email.slice(0, 254)}|${ip}`;
+  const ipKey = `ip|${ip}`; // per-IP cap too, so rotating e-mail names cannot bypass the limit or flood the audit log
   const since = Date.now() - 15 * 60 * 1000;
   const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key=? AND ts>?").bind(key, since).first();
-  if (c.n >= 5) throw new HttpError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.");
+  const ci = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key=? AND ts>?").bind(ipKey, since).first();
+  if (c.n >= 5 || ci.n >= 30) throw new HttpError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.");
   const u = await env.DB.prepare("SELECT * FROM users WHERE email=?").bind(email).first();
   // Always run the hash so response time does not reveal whether the user exists.
   const salt = u ? u.salt : "00".repeat(16);
   const h = await hashPassword(password, salt, u ? u.iterations : PBKDF2_ITER);
   if (!u || !u.active || !timingSafeEqual(h, u.pass_hash)) {
-    await env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()).run();
-    await audit(env, null, request, "login_failed", "user", email.slice(0, 100), null);
+    await commit(env, env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()), env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(ipKey, Date.now()),
+      auditStmt(env, null, request, "login_failed", "user", email.slice(0, 100), null));
+    await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
   await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run();
@@ -202,6 +210,7 @@ function diff(before, after) {
   for (const k of Object.keys(after)) if (String(before[k] ?? "") !== String(after[k] ?? "")) c[k] = { from: before[k] ?? null, to: after[k] };
   return c;
 }
+function safeDecode(s) { try { return decodeURIComponent(s); } catch { throw new HttpError(400, "bad_id", "Invalid employee ID"); } }
 function esc(s) { return s.replace(/[\\%_]/g, (m) => "\\" + m); }
 
 async function route(request, env) {
@@ -226,23 +235,26 @@ async function route(request, env) {
       sql += " AND (id LIKE ? ESCAPE '\\' OR name_ar LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR title_ar LIKE ? ESCAPE '\\' OR title_en LIKE ? ESCAPE '\\' OR dept_ar LIKE ? ESCAPE '\\' OR dept_en LIKE ? ESCAPE '\\' OR department LIKE ? ESCAPE '\\')";
       binds.push(like, like, like, like, like, like, like, like);
     }
-    const { results } = await env.DB.prepare(sql + " ORDER BY id LIMIT 200").bind(...binds).all();
-    return json(results.map((r) => publicEmployee(r, env))); // bare array
+    const lim = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 1), 200);
+    const off = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0);
+    const tot = await env.DB.prepare(sql.replace(`SELECT ${PUBLIC_COLS} FROM`, "SELECT COUNT(*) AS n FROM")).bind(...binds).first();
+    const { results } = await env.DB.prepare(sql + " ORDER BY id LIMIT ? OFFSET ?").bind(...binds, lim, off).all();
+    return json(results.map((r) => publicEmployee(r, env)), 200, { "X-Total-Count": String(tot.n) }); // bare array; total in header
   }
   if ((m = path.match(/^\/api\/employees\/([^/]+)$/)) && method === "GET") {
-    const id = normalizeId(decodeURIComponent(m[1]));
+    const id = normalizeId(safeDecode(m[1]));
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
     const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS} FROM employees WHERE id=? AND active=1`).bind(id).first();
     if (!r) throw new HttpError(404, "not_found", "Employee not found"); // inactive looks the same as missing
     return json(publicEmployee(r, env), 200); // bare object
   }
   if ((m = path.match(/^\/api\/photos\/([^/]+)$/)) && method === "GET") {
-    const id = normalizeId(decodeURIComponent(m[1]));
+    const id = normalizeId(safeDecode(m[1]));
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
     const p = await env.DB.prepare("SELECT p.mime,p.data_b64 FROM employee_photos p JOIN employees e ON e.id=p.employee_id WHERE p.employee_id=? AND e.active=1").bind(id).first();
     if (!p) throw new HttpError(404, "not_found", "No photo");
     const bin = Uint8Array.from(atob(p.data_b64), (c) => c.charCodeAt(0));
-    return new Response(bin, { headers: { "Content-Type": p.mime, "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'", "Cross-Origin-Resource-Policy": "cross-origin" } });
+    return new Response(bin, { headers: { "Content-Type": p.mime, "Cache-Control": "private, no-cache, must-revalidate", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'", "Cross-Origin-Resource-Policy": "cross-origin" } });
   }
 
   // ---- first-run setup ----
@@ -252,7 +264,7 @@ async function route(request, env) {
     const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
     if (n.n > 0) throw new HttpError(409, "already_setup", "Setup already completed");
     if (!timingSafeEqual(String(body.setup_token || ""), env.SETUP_TOKEN)) throw new HttpError(403, "forbidden", "Invalid setup token");
-    const u = await createUser(env, { email: body.email, name: body.name, role: "admin", password: body.password });
+    const u = await createUser(env, { email: body.email, name: body.name, role: "admin", password: body.password, onlyIfEmpty: true });
     await audit(env, { id: u.id, email: u.email }, request, "setup_admin", "user", String(u.id), null);
     return json({ ok: true, user: u }, 201);
   }
@@ -261,6 +273,7 @@ async function route(request, env) {
   // ---- authenticated ----
   if (path.startsWith("/api/auth/") || path.startsWith("/api/admin/")) {
     const user = await currentUser(request, env);
+    request._u = user; // lets the top-level handler audit a role denial
 
     if (path === "/api/auth/me" && method === "GET") return json({ user: { id: user.id, email: user.email, name: user.name, role: user.role } });
     if (path === "/api/auth/logout" && method === "POST") {
@@ -310,18 +323,18 @@ async function route(request, env) {
       const v = validateEmployee(body);
       const ts = nowIso();
       try {
-        await env.DB.prepare(`INSERT INTO employees (id,name_ar,name_en,title_ar,title_en,department,dept_ar,dept_en,phone,whatsapp,email,location_ar,location_en,photo_version,active,extra,created_at,updated_at,created_by,updated_by)
+        await commit(env, env.DB.prepare(`INSERT INTO employees (id,name_ar,name_en,title_ar,title_en,department,dept_ar,dept_en,phone,whatsapp,email,location_ar,location_en,photo_version,active,extra,created_at,updated_at,created_by,updated_by)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,?,?,?,?,?)`)
-          .bind(id, v.name_ar, v.name_en, v.title_ar, v.title_en, v.department || "", v.dept_ar || "", v.dept_en || "", v.phone, v.whatsapp || "", v.email || "", v.location_ar || "", v.location_en || "", v.extra || "{}", ts, ts, user.email, user.email).run();
+          .bind(id, v.name_ar, v.name_en, v.title_ar, v.title_en, v.department || "", v.dept_ar || "", v.dept_en || "", v.phone, v.whatsapp || "", v.email || "", v.location_ar || "", v.location_en || "", v.extra || "{}", ts, ts, user.email, user.email),
+          auditStmt(env, user, request, "create", "employee", id, v));
       } catch (e) {
         if (/UNIQUE|PRIMARY/i.test(String(e.message))) throw new HttpError(409, "exists", "An employee with this ID already exists");
         throw e;
       }
-      await audit(env, user, request, "create", "employee", id, v);
       return json({ employee: adminEmployee(await getEmployee(env, id), env) }, 201);
     }
     if ((m = path.match(/^\/api\/admin\/employees\/([^/]+)(\/(deactivate|reactivate|photo))?$/))) {
-      const id = normalizeId(decodeURIComponent(m[1]));
+      const id = normalizeId(safeDecode(m[1]));
       if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
       const sub = m[3];
       const cur = await getEmployee(env, id);
@@ -337,17 +350,16 @@ async function route(request, env) {
         const c = diff(cur, v);
         if (!Object.keys(c).length) return json({ employee: adminEmployee(cur, env) });
         const keys = Object.keys(v);
-        await env.DB.prepare(`UPDATE employees SET ${keys.map((k) => k + "=?").join(",")}, updated_at=?, updated_by=? WHERE id=?`)
-          .bind(...keys.map((k) => v[k]), nowIso(), user.email, id).run();
-        await audit(env, user, request, "update", "employee", id, c);
+        await commit(env, env.DB.prepare(`UPDATE employees SET ${keys.map((k) => k + "=?").join(",")}, updated_at=?, updated_by=? WHERE id=?`)
+          .bind(...keys.map((k) => v[k]), nowIso(), user.email, id), auditStmt(env, user, request, "update", "employee", id, c));
         return json({ employee: adminEmployee(await getEmployee(env, id), env) });
       }
       if ((sub === "deactivate" || sub === "reactivate") && method === "POST") {
         requireRole(user, "editor");
         const on = sub === "reactivate" ? 1 : 0;
         if (cur.active !== on) {
-          await env.DB.prepare("UPDATE employees SET active=?, deactivated_at=?, updated_at=?, updated_by=? WHERE id=?").bind(on, on ? null : nowIso(), nowIso(), user.email, id).run();
-          await audit(env, user, request, sub, "employee", id, null);
+          await commit(env, env.DB.prepare("UPDATE employees SET active=?, deactivated_at=?, updated_at=?, updated_by=? WHERE id=?").bind(on, on ? null : nowIso(), nowIso(), user.email, id),
+            auditStmt(env, user, request, sub, "employee", id, null));
         }
         return json({ employee: adminEmployee(await getEmployee(env, id), env) });
       }
@@ -363,16 +375,17 @@ async function route(request, env) {
         if (!magic) throw new HttpError(415, "bad_image", "File content does not match its type");
         let bin = ""; for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
         const ts = nowIso();
-        await env.DB.prepare("INSERT INTO employee_photos (employee_id,mime,data_b64,updated_at) VALUES (?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET mime=excluded.mime,data_b64=excluded.data_b64,updated_at=excluded.updated_at").bind(id, mime, btoa(bin), ts).run();
-        await env.DB.prepare("UPDATE employees SET photo_version=photo_version+1, updated_at=?, updated_by=? WHERE id=?").bind(ts, user.email, id).run();
-        await audit(env, user, request, "photo_set", "employee", id, { bytes: buf.length, mime });
+        await commit(env,
+          env.DB.prepare("INSERT INTO employee_photos (employee_id,mime,data_b64,updated_at) VALUES (?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET mime=excluded.mime,data_b64=excluded.data_b64,updated_at=excluded.updated_at").bind(id, mime, btoa(bin), ts),
+          env.DB.prepare("UPDATE employees SET photo_version=photo_version+1, updated_at=?, updated_by=? WHERE id=?").bind(ts, user.email, id),
+          auditStmt(env, user, request, "photo_set", "employee", id, { bytes: buf.length, mime }));
         return json({ employee: adminEmployee(await getEmployee(env, id), env) });
       }
       if (sub === "photo" && method === "DELETE") {
         requireRole(user, "editor");
-        await env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id).run();
-        await env.DB.prepare("UPDATE employees SET photo_version=0, updated_at=?, updated_by=? WHERE id=?").bind(nowIso(), user.email, id).run();
-        await audit(env, user, request, "photo_remove", "employee", id, null);
+        await commit(env, env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id),
+          env.DB.prepare("UPDATE employees SET photo_version=0, updated_at=?, updated_by=? WHERE id=?").bind(nowIso(), user.email, id),
+          auditStmt(env, user, request, "photo_remove", "employee", id, null));
         return json({ employee: adminEmployee(await getEmployee(env, id), env) });
       }
       throw new HttpError(405, "method_not_allowed", "Method not allowed");
@@ -399,17 +412,23 @@ async function route(request, env) {
     if ((m = path.match(/^\/api\/admin\/users\/(\d+)$/)) && method === "PUT") {
       requireRole(user, "admin");
       const uid = Number(m[1]); const b = await readJson(request);
+      if ("active" in b && typeof b.active !== "boolean") throw new HttpError(422, "validation_failed", "Validation failed", { active: "must be true or false" });
       if (uid === user.id && (b.active === false || (b.role && b.role !== "admin"))) throw new HttpError(422, "validation_failed", "You cannot demote or disable yourself");
-      const target = await env.DB.prepare("SELECT id FROM users WHERE id=?").bind(uid).first();
+      const target = await env.DB.prepare("SELECT id,role,active FROM users WHERE id=?").bind(uid).first();
       if (!target) throw new HttpError(404, "not_found", "User not found");
+      if (target.role === "admin" && target.active && (b.active === false || ("role" in b && b.role !== "admin"))) {
+        const o = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1 AND id<>?").bind(uid).first();
+        if (!o.n) throw new HttpError(422, "validation_failed", "At least one active admin must remain");
+      }
       const sets = []; const binds = [];
       if ("role" in b) { if (!RANK[b.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" }); sets.push("role=?"); binds.push(b.role); }
       if ("active" in b) { sets.push("active=?"); binds.push(b.active ? 1 : 0); }
       if ("password" in b) { checkPassword(b.password); const salt = randomHex(16); sets.push("salt=?", "pass_hash=?", "iterations=?"); binds.push(salt, await hashPassword(b.password, salt, PBKDF2_ITER), PBKDF2_ITER); }
       if (!sets.length) throw new HttpError(400, "nothing_to_update", "Nothing to update");
-      await env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid).run();
-      if ("password" in b || b.active === false) await env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid).run();
-      await audit(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b });
+      const ops = [env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid)];
+      if ("password" in b || "role" in b || b.active === false) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // role change also ends old sessions
+      ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b }));
+      await commit(env, ...ops);
       return json({ ok: true });
     }
     throw new HttpError(404, "not_found", "Not found");
@@ -426,6 +445,14 @@ export default {
       if (!env.DB) throw new HttpError(503, "no_database", "Database binding is missing");
       res = await route(request, env);
     } catch (e) {
+      if (e instanceof HttpError && e.code === "forbidden" && request._u) {
+        // Audit role denials of a signed-in user: method+path only (no body, no secrets); max 20 per user per 15 min so it cannot grow unbounded.
+        try {
+          const u = request._u, since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+          const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE user_id=? AND action='denied' AND ts>?").bind(u.id, since).first();
+          if (c.n < 20) await audit(env, u, request, "denied", "request", new URL(request.url).pathname.slice(0, 120), { method: request.method, role: u.role });
+        } catch {}
+      }
       if (e instanceof HttpError) res = json({ error: e.message, code: e.code, ...(e.details ? { details: e.details } : {}) }, e.status);
       else { console.error("unhandled", e && e.message); res = json({ error: "Internal error", code: "internal" }, 500); }
     }
