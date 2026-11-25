@@ -87,8 +87,8 @@ const notFound=!rep&&!!params.get("id");
 if(!rep){id="SMT-001";rep=reps[id];}
 let english=false;
 const T={
- ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",phoneL:"الهاتف",emailL:"البريد الإلكتروني",regionL:"المنطقة",desc:"شركة متخصصة في مجال الخرسانة الجاهزة. تواصل مع ممثلنا لمعرفة المزيد عن خدماتنا.",qr:"شارك بطاقة المندوب عبر هذا الكود",nfT:"هذه البطاقة غير موجودة",nfB:"الرابط أو الكود الذي تم مسحه غير صحيح. تأكد من الكود أو تواصل مع الشركة.",chip:"رقم المندوب"},
- en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",phoneL:"Phone",emailL:"Email",regionL:"Region",desc:"A company focused on ready-mix concrete. Contact our representative to learn more about our services.",qr:"Share this representative's card",nfT:"Card not found",nfB:"The scanned link or code is not valid. Please check the code or contact the company.",chip:"Rep ID"}
+ ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",phoneL:"الهاتف",emailL:"البريد الإلكتروني",regionL:"المنطقة",desc:"سيمتا شركة متخصصة في الخرسانة الجاهزة، هدفنا أن نكون شريكًا يُعتمد عليه في مشروعك، والجودة هي أساس ما نقدّمه. تواصل مع ممثلنا لمعرفة المزيد.",qr:"شارك بطاقة المندوب عبر هذا الكود",nfT:"هذه البطاقة غير موجودة",nfB:"الرابط أو الكود الذي تم مسحه غير صحيح. تأكد من الكود أو تواصل مع الشركة.",chip:"رقم المندوب"},
+ en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",phoneL:"Phone",emailL:"Email",regionL:"Region",desc:"SIMTA is a ready-mix concrete company. We aim to be a partner you can rely on for your project, and quality is the foundation of what we offer. Contact our representative to learn more.",qr:"Share this representative's card",nfT:"Card not found",nfB:"The scanned link or code is not valid. Please check the code or contact the company.",chip:"Rep ID"}
 };
 function render(){document.querySelectorAll(".root").forEach(r=>{R=r;renderOne()});const h=document.documentElement;h.lang=english?"en":"ar";h.dir=english?"ltr":"rtl"}
 const DEFAULT_AV='<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" fill="#e8dac5"/><circle cx="32" cy="25" r="11" fill="#9c7040"/><path d="M10 64c0-14 9-22 22-22s22 8 22 22z" fill="#9c7040"/></svg>';
@@ -112,4 +112,5 @@ function toggleLang(){english=!english;render()}
 function downloadVcard(){const v=["BEGIN:VCARD","VERSION:3.0","FN:"+rep.en,"ORG:SIMTA Ready Mix Concrete","TITLE:"+rep.roleEn,"TEL;TYPE=CELL:"+rep.phone].concat(rep.email?["EMAIL:"+rep.email]:[]).concat(["ADR:;;"+rep.regionEn+";;;;","END:VCARD"]).join("\r\n");const blob=new Blob([v],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SIMTA-"+id+".vcf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 render();
 </script></body></html>
+
 
