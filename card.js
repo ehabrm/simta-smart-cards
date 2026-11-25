@@ -58,7 +58,10 @@ async function load(){
  if(!ID_RE.test(id)){state="notfound";render();return}
  render();
  try{
-  const res=await fetch(API+"/api/employees/"+encodeURIComponent(id),{cache:"no-store"});
+  let q="";const day=new Date().toISOString().slice(0,10);let first=false;
+  try{if(params.get("preview")==="1")q="?preview=1";else if(localStorage.getItem("simta_seen")!==day){q="?f=1";first=true}}catch(e){}
+  const res=await fetch(API+"/api/employees/"+encodeURIComponent(id)+q,{cache:"no-store"});
+  try{if(first&&res.ok)localStorage.setItem("simta_seen",day)}catch(e){}
   if(res.status===404||res.status===400){state="notfound"}
   else if(res.status===503){let d=null;try{d=await res.json()}catch(e){}state=(d&&d.code==="maintenance")?"maintenance":"error"}
   else if(!res.ok){state="error"}

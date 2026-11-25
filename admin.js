@@ -13,6 +13,8 @@ const I = {
   phone:"الهاتف", whatsapp:"واتساب", mail:"البريد الإلكتروني", locAr:"الموقع بالعربي", locEn:"الموقع بالإنجليزي", photo:"الصورة", choosePhoto:"اختيار صورة", removePhoto:"حذف الصورة",
   save:"حفظ", cancel:"إلغاء", edit:"تعديل", preview:"البطاقة", deactivate:"إيقاف", reactivate:"تفعيل", status:"الحالة", employee:"الموظف", contact:"التواصل", actions:"إجراءات",
   statusActive:"نشط", statusInactive:"موقوف", none:"لا يوجد موظفون مطابقون", count:"عدد", newEmp:"موظف جديد", editEmp:"تعديل الموظف", saved:"تم الحفظ", copied:"تم نسخ الرابط",
+  del:"حذف نهائي", promptDelete:"حذف نهائي لا يمكن التراجع عنه. اكتب رقم الموظف للتأكيد:", deleteDone:"تم حذف الموظف", deleteMismatch:"الرقم غير مطابق، لم يتم الحذف",
+  visits:"الزيارات", vToday:"اليوم", vYesterday:"أمس", v7:"آخر 7 أيام", v30:"آخر 30 يومًا", vTotal:"من بداية العد", vBrowsers:"متصفحات مختلفة اليوم (تقريبي)", vTop:"أكثر البطاقات فتحًا (30 يومًا)", vNote:"الزيارة = فتح ناجح للكارت (يتكرر لو نفس الشخص فتحه أكتر من مرة). العدد يبدأ من تفعيل الميزة وقد يقل قليلًا عن الواقع. المتصفحات المختلفة ليست أشخاصًا.", vNone:"لا توجد بيانات بعد",
   cardUrl:"رابط البطاقة", copy:"نسخ", qr:"رمز QR", downloadPng:"تحميل PNG", downloadSvg:"تحميل SVG", openCard:"فتح البطاقة", close:"إغلاق", confirmDeact:"إيقاف هذا الموظف؟ لن يظهر في البطاقة العامة، وتبقى بياناته محفوظة.",
   confirmReact:"إعادة تفعيل هذا الموظف؟", deactDone:"تم الإيقاف", reactDone:"تمت إعادة التفعيل", idHint:"مثال: SMT-005", loading:"جارٍ التحميل…", netErr:"تعذّر الاتصال بالخدمة", sessionEnd:"انتهت الجلسة، سجّل الدخول مرة أخرى",
   time:"الوقت", user:"المستخدم", action:"الإجراء", entity:"العنصر", details:"التفاصيل", prev:"السابق", next:"التالي", photoBad:"الملف ليس صورة صالحة", photoBig:"الصورة كبيرة جدًا", readOnly:"صلاحيتك للقراءة فقط", role:"الدور",
@@ -27,6 +29,8 @@ const I = {
   phone:"Phone", whatsapp:"WhatsApp", mail:"Email", locAr:"Arabic location", locEn:"English location", photo:"Photo", choosePhoto:"Choose photo", removePhoto:"Remove photo",
   save:"Save", cancel:"Cancel", edit:"Edit", preview:"Card", deactivate:"Deactivate", reactivate:"Reactivate", status:"Status", employee:"Employee", contact:"Contact", actions:"Actions",
   statusActive:"Active", statusInactive:"Inactive", none:"No matching employees", count:"Count", newEmp:"New employee", editEmp:"Edit employee", saved:"Saved", copied:"Link copied",
+  del:"Delete permanently", promptDelete:"Permanent delete, cannot be undone. Type the employee ID to confirm:", deleteDone:"Employee deleted", deleteMismatch:"ID does not match, nothing was deleted",
+  visits:"Visits", vToday:"Today", vYesterday:"Yesterday", v7:"Last 7 days", v30:"Last 30 days", vTotal:"Since counting started", vBrowsers:"Different browsers today (approx.)", vTop:"Most opened cards (30 days)", vNote:"A visit is one successful card open (the same person opening it twice counts twice). Counting started when this feature went live and may slightly undercount. Different browsers are not people.", vNone:"No data yet",
   cardUrl:"Card URL", copy:"Copy", qr:"QR code", downloadPng:"Download PNG", downloadSvg:"Download SVG", openCard:"Open card", close:"Close", confirmDeact:"Deactivate this employee? Their public card stops working, but their record is kept.",
   confirmReact:"Reactivate this employee?", deactDone:"Deactivated", reactDone:"Reactivated", idHint:"e.g. SMT-005", loading:"Loading…", netErr:"Could not reach the service", sessionEnd:"Session ended, please sign in again",
   time:"Time", user:"User", action:"Action", entity:"Item", details:"Details", prev:"Previous", next:"Next", photoBad:"Not a valid image", photoBig:"Image too large", readOnly:"Your role is read-only", role:"Role",
@@ -162,6 +166,11 @@ async function renderDash() {
     box.replaceChildren(
       mtBox,
       el("div", { class: "grid stats" }, stat(s.total, t("total")), stat(s.active, t("active")), stat(s.inactive, t("inactive")), stat(s.with_photo, t("withPhoto"))),
+      s.visits ? el("div", { class: "card", style: "margin-top:14px" }, el("h2", {}, t("visits")),
+        el("div", { class: "grid stats", id: "visitStats" }, stat(s.visits.views.today, t("vToday")), stat(s.visits.views.yesterday, t("vYesterday")), stat(s.visits.views.last7, t("v7")), stat(s.visits.views.last30, t("v30")), stat(s.visits.views.total, t("vTotal")), stat(s.visits.browsers_approx.today, t("vBrowsers"))),
+        el("h2", { style: "margin-top:12px" }, t("vTop")),
+        s.visits.top_30d.length ? s.visits.top_30d.map((r) => el("div", { class: "deptbar" }, el("span", { class: "mono" }, r.id), el("span", { style: "flex:1" }, (lang === "ar" ? r.name_ar : r.name_en) || ""), el("b", {}, String(r.views)))) : el("div", { class: "muted" }, t("vNone")),
+        el("div", { class: "muted", style: "margin-top:8px;font-size:12px" }, t("vNote"))) : null,
       el("div", { class: "grid two", style: "margin-top:14px" },
         el("div", { class: "card" }, el("h2", {}, t("byDept")),
           s.departments.length ? s.departments.map((d) => el("div", { class: "deptbar" }, el("span", { style: "min-width:110px" }, (lang === "ar" ? d.dept_ar : d.dept_en) || d.department || t("noDept")), el("i", { style: `width:${Math.round(d.n / max * 100)}%;min-width:8px` }), el("b", {}, d.n))) : el("p", { class: "muted" }, "—")),
@@ -212,7 +221,8 @@ async function loadEmps() {
     const actions = (e) => el("div", { class: "acts" },
       el("button", { class: "btn alt sm", "data-act": "preview", onclick: () => openPreview(e) }, t("preview")),
       canEdit() ? el("button", { class: "btn alt sm", "data-act": "edit", onclick: () => openForm(e) }, t("edit")) : null,
-      canEdit() ? el("button", { class: "btn sm " + (e.active ? "danger" : "alt"), "data-act": e.active ? "deactivate" : "reactivate", onclick: () => toggleActive(e) }, e.active ? t("deactivate") : t("reactivate")) : null);
+      canEdit() ? el("button", { class: "btn sm " + (e.active ? "danger" : "alt"), "data-act": e.active ? "deactivate" : "reactivate", onclick: () => toggleActive(e) }, e.active ? t("deactivate") : t("reactivate")) : null,
+      me && me.role === "admin" ? el("button", { class: "btn sm danger", "data-act": "delete", onclick: () => deleteEmp(e) }, t("del")) : null);
     const table = el("table", {}, el("thead", {}, el("tr", {}, ...["id", "employee", "dept", "contact", "status", "actions"].map((k) => el("th", {}, k === "employee" ? t("employee") : t(k))))),
       el("tbody", {}, r.employees.map((e) => el("tr", { "data-id": e.id },
         el("td", { class: "mono" }, e.id),
@@ -228,6 +238,13 @@ async function loadEmps() {
         el("button", { class: "btn alt sm", disabled: query.offset + PAGE >= r.total, onclick: () => { query.offset += PAGE; loadEmps(); } }, t("next"))));
     list.replaceChildren(el("div", { class: "tablewrap" }, table, cards), pages);
   } catch (e) { if (!e.auth) list.replaceChildren(el("div", { class: "err" }, e.message)); }
+}
+async function deleteEmp(e) {
+  const typed = prompt(t("promptDelete") + " " + e.id);
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== e.id) { toast(t("deleteMismatch")); return; }
+  try { await api("DELETE", `/api/admin/employees/${e.id}`, { confirm: typed.trim() }); toast(t("deleteDone")); loadEmps(); }
+  catch (er) { if (!er.auth) toast(er.message); }
 }
 async function toggleActive(e) {
   if (!confirm(e.active ? t("confirmDeact") : t("confirmReact"))) return;
@@ -334,7 +351,7 @@ function openPreview(emp) {
   const url = cardUrl(emp.id);
   const qrHost = el("div", { class: "qrbox", id: "qrHost" }); qrHost.innerHTML = qrSvg(url); // generated locally from our own URL string
   const urlIn = el("input", { value: url, readonly: true, dir: "ltr", id: "cardUrl", "aria-label": t("cardUrl") });
-  const frame = el("iframe", { src: url + (lang === "en" ? "&lang=en" : ""), title: t("preview"), loading: "lazy" });
+  const frame = el("iframe", { src: url + "&preview=1" + (lang === "en" ? "&lang=en" : ""), title: t("preview"), loading: "lazy" });
   openModal(el("div", {}, el("h3", {}, `${emp.id} · ${lang === "ar" ? emp.name_ar : emp.name_en}`),
     el("div", { class: "preview" }, frame, el("div", {},
       el("label", {}, t("cardUrl")),

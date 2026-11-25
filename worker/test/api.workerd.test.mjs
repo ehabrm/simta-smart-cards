@@ -95,7 +95,7 @@ t("directory list has no internal fields", r.j.every((e) => !("extra" in e) && !
 r = await call("GET", "/api/employees", { token: "b".repeat(64) }); t("directory list with forged token -> 401", r.status === 401);
 r = await call("GET", "/api/photos/SMT-001"); t("deactivated photo hidden", r.status === 404);
 r = await call("GET", "/api/admin/employees?status=inactive", { token: admin }); t("admin sees inactive", r.j.total === 1);
-r = await call("DELETE", "/api/admin/employees/SMT-001", { token: admin }); t("no hard delete endpoint", r.status === 405);
+r = await call("DELETE", "/api/admin/employees/SMT-001", { token: admin }); t("delete without typed confirmation is refused (422)", r.status === 422);
 r = await call("POST", "/api/admin/employees/SMT-001/reactivate", { token: editor }); t("reactivate", r.j.employee.active === true);
 r = await call("GET", "/api/admin/stats", { token: admin }); t("stats", r.j.total === 4 && r.j.active === 4, JSON.stringify(r.j));
 // audit

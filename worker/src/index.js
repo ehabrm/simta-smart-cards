@@ -1,4 +1,4 @@
-// SIMTA Cards API (Cloudflare Worker + D1). STAGING code, not deployed.
+// SIMTA Cards API (Cloudflare Worker + D1). Production code (deployed as simta-cards-prod).
 // Auth: password (PBKDF2-SHA256) -> random bearer session token, stored only as a SHA-256 hash in D1.
 // Roles: admin (everything + users), editor (employees), viewer (read-only admin).
 
@@ -303,6 +303,47 @@ async function guardMaintenance(env) {
   if (await isMaintenance(env)) throw new HttpError(503, "maintenance", "Temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
 }
 
+// ---------- visit counters (aggregate only; never breaks a card) ----------
+// "views" = successful opens of an active card by a non-bot, non-preview client. "browsers" = how many of those were the first open
+// of the day on that browser, as REPORTED by the card page (?f=1, a per-day localStorage flag). It is approximate: not people, and it
+// must not be summed across days. No IP, user-agent, cookie or visitor id is stored. Counts are buffered in memory per Worker isolate
+// and written at most once per VIEWS_FLUSH_SECONDS (default 60) per isolate, capped per isolate per UTC day, so a traffic spike cannot
+// use up the D1 free write budget. A recycled isolate loses its unflushed counts (undercount). Not a global budget reserve.
+const BOT_RE = /bot|crawl|spider|slurp|preview|headless|facebookexternalhit|curl|wget|python|httpclient|monitor|uptime/i;
+const VIEWS_PENDING = new Map(); let viewsLastFlush = 0, viewsDay = "", viewsFlushes = 0, viewsReady = false;
+async function ensureViews(env) {
+  if (viewsReady) return;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS card_views (day TEXT NOT NULL, employee_id TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, browsers INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, employee_id)) WITHOUT ROWID").run();
+  viewsReady = true;
+}
+async function noteView(env, request, url, id) {
+  try {
+    if (url.searchParams.get("preview") === "1" || BOT_RE.test(request.headers.get("User-Agent") || "")) return;
+    const day = nowIso().slice(0, 10);
+    if (day !== viewsDay) { viewsDay = day; viewsFlushes = 0; }
+    const k = day + "|" + id, e = VIEWS_PENDING.get(k) || { day, id, v: 0, b: 0 };
+    e.v++; if (url.searchParams.get("f") === "1") e.b++;
+    VIEWS_PENDING.set(k, e);
+    const every = Number(env.VIEWS_FLUSH_SECONDS ?? 60) * 1000, cap = Number(env.VIEWS_MAX_FLUSHES_PER_DAY || 200);
+    if (Date.now() - viewsLastFlush < every || viewsFlushes >= cap) { if (VIEWS_PENDING.size > 500) VIEWS_PENDING.clear(); return; }
+    viewsLastFlush = Date.now(); viewsFlushes++;
+    const rows = [...VIEWS_PENDING.values()]; VIEWS_PENDING.clear();
+    await ensureViews(env);
+    await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT INTO card_views (day,employee_id,views,browsers) VALUES (?,?,?,?) ON CONFLICT(day,employee_id) DO UPDATE SET views=views+excluded.views, browsers=browsers+excluded.browsers").bind(r.day, r.id, r.v, r.b)));
+  } catch { /* analytics must never affect cards */ }
+}
+async function visitStats(env) {
+  try {
+    await ensureViews(env);
+    const d = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+    const sum = async (from) => (await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v FROM card_views WHERE day>=?").bind(from).first()).v;
+    const day = async (x) => await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v, COALESCE(SUM(browsers),0) AS b FROM card_views WHERE day=?").bind(x).first();
+    const t = await day(d(0)), y = await day(d(1));
+    const { results: top } = await env.DB.prepare("SELECT c.employee_id AS id, SUM(c.views) AS views, e.name_ar, e.name_en FROM card_views c LEFT JOIN employees e ON e.id=c.employee_id WHERE c.day>=? GROUP BY c.employee_id ORDER BY views DESC LIMIT 5").bind(d(29)).all();
+    return { views: { today: t.v, yesterday: y.v, last7: await sum(d(6)), last30: await sum(d(29)), total: await sum("0000-00-00") }, browsers_approx: { today: t.b, yesterday: y.b }, top_30d: top, since_note: "Counts start when this feature was activated; day is UTC." };
+  } catch { return null; }
+}
+
 // ---------- routes ----------
 async function getEmployee(env, id) {
   return env.DB.prepare(`SELECT * FROM employees WHERE id=?`).bind(id).first();
@@ -352,6 +393,7 @@ async function route(request, env) {
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
     const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS} FROM employees WHERE id=? AND active=1`).bind(id).first();
     if (!r) throw new HttpError(404, "not_found", "Employee not found"); // inactive looks the same as missing
+    await noteView(env, request, url, id);
     return json(publicEmployee(r, env), 200); // bare object
   }
   if ((m = path.match(/^\/api\/photos\/([^/]+)$/)) && method === "GET") {
@@ -441,7 +483,8 @@ async function route(request, env) {
       const t = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(active) AS active, SUM(CASE WHEN photo_version>0 THEN 1 ELSE 0 END) AS with_photo FROM employees").first();
       const { results: depts } = await env.DB.prepare("SELECT department, dept_ar, dept_en, COUNT(*) AS n FROM employees WHERE active=1 GROUP BY department, dept_ar, dept_en ORDER BY n DESC").all();
       const { results: recent } = await env.DB.prepare("SELECT id,name_ar,name_en,updated_at,active FROM employees ORDER BY updated_at DESC LIMIT 5").all();
-      return json({ total: t.total || 0, active: t.active || 0, inactive: (t.total || 0) - (t.active || 0), with_photo: t.with_photo || 0, departments: depts, recent });
+      const visits = await visitStats(env);
+      return json({ visits, total: t.total || 0, active: t.active || 0, inactive: (t.total || 0) - (t.active || 0), with_photo: t.with_photo || 0, departments: depts, recent });
     }
 
     if (path === "/api/admin/employees" && method === "GET") {
@@ -496,6 +539,16 @@ async function route(request, env) {
       if (!cur) throw new HttpError(404, "not_found", "Employee not found");
 
       if (!sub && method === "GET") return json({ employee: adminEmployee(cur, env) });
+      if (!sub && method === "DELETE") {
+        // Permanent delete: admin only, and the caller must send the employee ID again as {"confirm": "SMT-001"}.
+        requireRole(user, "admin");
+        let body = null; try { body = await request.json(); } catch { body = null; }
+        if (!body || normalizeId(String(body.confirm || "")) !== id) throw new HttpError(422, "confirmation_required", "Type the employee ID to confirm deletion", { confirm: "must equal the employee ID" });
+        await commit(env, env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id),
+          env.DB.prepare("DELETE FROM employees WHERE id=?").bind(id),
+          auditStmt(env, user, request, "delete", "employee", id, { name_en: cur.name_en }));
+        return json({ deleted: true, id });
+      }
       if (!sub && method === "PUT") {
         requireRole(user, "editor");
         const body = await readJson(request);
