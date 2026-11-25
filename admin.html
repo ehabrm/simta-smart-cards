@@ -106,6 +106,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
     <form id="loginForm" autocomplete="on">
       <div class="f"><label for="lemail" data-i="email"></label><input id="lemail" type="email" autocomplete="username" required dir="ltr"></div>
       <div class="f"><label for="lpass" data-i="password"></label><input id="lpass" type="password" autocomplete="current-password" required dir="ltr"></div>
+      <div class="f hidden" id="lcodeRow"><label for="lcode" data-i="code"></label><input id="lcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr"></div>
       <button class="btn" style="width:100%" type="submit" data-i="signIn"></button>
     </form>
   </div>
@@ -117,6 +118,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
     <div class="sp"></div>
     <span class="who" id="who"></span>
     <button class="pill langbtn" type="button">English</button>
+    <button class="pill" id="twoFaBtn" type="button" data-i="twoFa"></button>
     <button class="pill" id="logoutBtn" type="button" data-i="signOut"></button>
   </header>
   <nav class="tabs" role="tablist">
