@@ -142,7 +142,8 @@ function avatar(emp, big) {
 }
 async function renderEmps() {
   const box = $("#emps");
-  if (!$("#empList", box)) {
+  if (!$("#empList", box) || box.dataset.lang !== lang) { // rebuild the toolbar when the language changes so labels are translated
+    box.dataset.lang = lang;
     const search = el("input", { type: "search", id: "q", placeholder: t("search"), "aria-label": t("search"), value: query.q });
     let tm; search.addEventListener("input", () => { clearTimeout(tm); tm = setTimeout(() => { query.q = search.value; query.offset = 0; loadEmps(); }, 250); });
     const sel = el("select", { id: "stat", "aria-label": t("status") }, ...["all", "active", "inactive"].map((v) => el("option", { value: v }, v === "all" ? t("all") : v === "active" ? t("statusActive") : t("statusInactive"))));
@@ -157,10 +158,12 @@ async function renderEmps() {
 }
 async function loadEmps() {
   const list = $("#empList");
+  const seq = (loadEmps.seq = (loadEmps.seq || 0) + 1); // only the newest request may render (avoids a stale empty list after a quick create)
   try {
     const sortKey = query.sort === "name" ? (lang === "ar" ? "name_ar" : "name_en") : query.sort === "title" ? (lang === "ar" ? "title_ar" : "title_en") : query.sort === "dept" ? (lang === "ar" ? "dept_ar" : "dept_en") : query.sort;
     const qs = new URLSearchParams({ status: query.status, limit: PAGE, offset: query.offset, sort: sortKey, dir: query.dir }); if (query.q) qs.set("q", query.q);
     const r = await api("GET", "/api/admin/employees?" + qs);
+    if (seq !== loadEmps.seq) return;
     if (!r.employees.length) { list.replaceChildren(el("div", { class: "card empty" }, t("none"))); return; }
     const status = (e) => el("span", { class: "badge " + (e.active ? "on" : "off") }, e.active ? t("statusActive") : t("statusInactive"));
     const name = (e) => lang === "ar" ? e.name_ar : e.name_en;
