@@ -3,7 +3,7 @@ import http from "node:http"; import fs from "node:fs"; import path from "node:p
 import worker from "../src/index.js"; import { makeDB } from "./mock-d1.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PORT = Number(process.env.PORT || 8799);
-const env = { DB: makeDB(), ALLOWED_ORIGINS: `http://localhost:${PORT}`, CARD_BASE_URL: `http://localhost:${PORT}/card.html`, SETUP_TOKEN: "local-setup", ENVIRONMENT: "local-mock" };
+const env = { DB: makeDB(), ALLOWED_ORIGINS: `http://localhost:${PORT}`, CARD_BASE_URL: `http://localhost:${PORT}/card.html`, SETUP_TOKEN: "local-setup", ENVIRONMENT: "local-mock", TOTP_KEY: "local-totp-key-0123456789", RATE_API_PER_MIN: "100000", RATE_AUTH_PER_MIN: "100000", RATE_CARD_PER_MIN: "100000" };
 const call = (m, p, body, tok) => worker.fetch(new Request("http://x" + p, { method: m, headers: { "Content-Type": "application/json", ...(tok ? { Authorization: "Bearer " + tok } : {}) }, body: body ? JSON.stringify(body) : undefined }), env).then((r) => r.json());
 await call("POST", "/api/setup", { setup_token: "local-setup", email: "admin@example.com", name: "Admin", password: "local test password 1" });
 const tok = (await call("POST", "/api/auth/login", { email: "admin@example.com", password: "local test password 1" })).token;
