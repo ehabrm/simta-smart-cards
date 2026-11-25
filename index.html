@@ -43,7 +43,6 @@ body{margin:0;min-height:100vh;background:var(--cream);color:var(--ink);font-fam
 <div class="row"><span class="ico"><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span><span><span class="lbl" id="regionL"></span><span class="val" id="region"></span></span></div>
 </div>
 <div class="company"><img src="3-emblem.webp" width="56" height="56" alt="" loading="lazy"><div><b id="companyTitle">سيمتا | SIMTA</b><span id="companyDesc"></span></div></div>
-<div class="qr"><svg id="qr" viewBox="0 0 10 10" shape-rendering="crispEdges" role="img" aria-label="QR"><path id="qrp" fill="#29251f"/></svg><p id="qrText"></p></div>
 </div>
 </main>
 <footer class="footer">SIMTA · READY MIX CONCRETE</footer>
@@ -67,7 +66,6 @@ body{margin:0;min-height:100vh;background:var(--cream);color:var(--ink);font-fam
 </div>
 <button class="link" id="save" type="button" onclick="downloadVcard()"></button>
 <div class="about"><img src="3-emblem.webp" width="48" height="48" alt="" loading="lazy"><p><b id="companyTitle">سيمتا | SIMTA</b><br><span id="companyDesc"></span></p></div>
-<div class="qr"><svg id="qr" viewBox="0 0 10 10" shape-rendering="crispEdges" role="img" aria-label="QR"><path id="qrp" fill="#29251f"/></svg><span id="qrText"></span></div>
 </div>
 </main>
 <div class="footer">SIMTA · READY MIX CONCRETE</div>
@@ -108,9 +106,10 @@ function renderOne(){
  $("wa").style.display=rep.wa?"":"none";if(rep.wa){$("wa").href="https://wa.me/"+rep.wa;$("wa").target="_blank";$("wa").rel="noopener"}
  $("emailRow").style.display=rep.email?"":"none";if(rep.email){$("email").textContent=rep.email;$("emailRow").href="mailto:"+rep.email}
  $("region").textContent=english?rep.regionEn:rep.region;
- const q=QR[id];$("qr").setAttribute("viewBox","-2 -2 "+(q.n+4)+" "+(q.n+4));$("qrp").setAttribute("d",q.d);$("qrText").textContent=t.qr;
+ 
 }
 function toggleLang(){english=!english;render()}
 function downloadVcard(){const v=["BEGIN:VCARD","VERSION:3.0","FN:"+rep.en,"ORG:SIMTA Ready Mix Concrete","TITLE:"+rep.roleEn,"TEL;TYPE=CELL:"+rep.phone].concat(rep.email?["EMAIL:"+rep.email]:[]).concat(["ADR:;;"+rep.regionEn+";;;;","END:VCARD"]).join("\r\n");const blob=new Blob([v],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SIMTA-"+id+".vcf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 render();
 </script></body></html>
+
