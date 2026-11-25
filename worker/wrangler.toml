@@ -1,0 +1,22 @@
+# PRODUCTION Worker (deployed as simta-cards-prod). The deployed copy is edited in the
+# Cloudflare dashboard; this file documents its settings. Staging was removed.
+name = "simta-cards-prod"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+# Dashboard vars (Workers > simta-cards-prod > Settings > Variables):
+#   ALLOWED_ORIGINS = https://simta-smart-cards.pages.dev   (exact origin, no wildcard)
+#   CARD_BASE_URL   = https://simta-smart-cards.pages.dev/card.html
+#   ENVIRONMENT     = production
+ALLOWED_ORIGINS = "https://simta-smart-cards.pages.dev"
+CARD_BASE_URL = "https://simta-smart-cards.pages.dev/card.html"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "simta-cards-prod-db"
+# database_id: copy from Cloudflare dashboard > D1 > simta-cards-prod-db
+database_id = "REPLACE_WITH_PROD_D1_ID"
+migrations_dir = "migrations"
+
+# Secrets (never in this file): SETUP_TOKEN (only used once to create the first admin)

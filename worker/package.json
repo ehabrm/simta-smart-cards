@@ -1,0 +1,11 @@
+{
+  "name": "simta-cards-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --no-warnings test/api.test.mjs",
+    "test:workerd": "node test/api.workerd.test.mjs",
+    "dev:local": "node --no-warnings test/dev-server.mjs"
+  },
+  "devDependencies": { "miniflare": "^3.20241106.0" }
+}
