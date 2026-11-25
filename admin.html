@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://simta-cards-prod.ehabrmcr7.workers.dev; connect-src 'self' https://simta-cards-prod.ehabrmcr7.workers.dev; frame-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#4b2f18">
+<title>SIMTA | لوحة التحكم</title>
+<link rel="icon" href="3-emblem.webp" type="image/webp">
+<script src="config.js"></script>
+<script src="qrcode.js"></script>
+<style>
+:root{--brown:#70451f;--brown2:#4b2f18;--gold:#b58a55;--cream:#f6f2eb;--ink:#29251f;--muted:#6b645c;--line:#e8dfd2;--ok:#2f7d4f;--bad:#b3392f;--card:#fff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--cream);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;font-size:15px;line-height:1.5}
+button,input,select{font:inherit;color:inherit}
+.hidden{display:none!important}
+.topbar{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:10px 16px}
+.topbar:before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#4b2f18,#9c7040,#d2b17d,#70451f)}
+.topbar img.logo{height:34px;width:auto;mix-blend-mode:multiply}
+.topbar .sp{flex:1}
+.pill{border:1px solid #d6c3a8;background:#fff;border-radius:20px;padding:6px 13px;color:var(--brown);font-weight:600;font-size:13px;cursor:pointer}
+.who{font-size:13px;color:var(--muted)}
+.tabs{display:flex;gap:4px;padding:10px 16px 0;overflow-x:auto;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:51px;z-index:19}
+.tab{border:0;background:none;padding:10px 14px;border-bottom:3px solid transparent;color:var(--muted);font-weight:600;cursor:pointer;white-space:nowrap}
+.tab[aria-selected=true]{color:var(--brown2);border-color:var(--brown)}
+main{max-width:1180px;margin:0 auto;padding:18px 16px 60px}
+h2{margin:0 0 14px;font-size:20px;color:var(--brown2)}
+.grid{display:grid;gap:14px}
+.stats{grid-template-columns:repeat(2,1fr)}
+@media(min-width:760px){.stats{grid-template-columns:repeat(4,1fr)}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.stat b{display:block;font-size:30px;color:var(--brown2);line-height:1.1}
+.stat span{color:var(--muted);font-size:13px}
+.two{grid-template-columns:1fr}
+@media(min-width:860px){.two{grid-template-columns:1fr 1fr}}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.bar input[type=search]{flex:1;min-width:200px}
+input,select{background:#fff;border:1px solid #d9ccb8;border-radius:12px;padding:10px 12px;min-height:44px;width:100%}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.bar select{width:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:12px;border:1px solid transparent;background:var(--brown2);color:#fff;font-weight:700;cursor:pointer}
+.btn.alt{background:#faf6ef;color:var(--brown2);border-color:#e3d6c1}
+.btn.danger{background:#fff;color:var(--bad);border-color:#e7c3bf}
+.btn.sm{min-height:36px;padding:0 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:start;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;background:#faf6ef}
+.tablewrap{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.emp{display:flex;align-items:center;gap:10px}
+.av{width:42px;height:42px;border-radius:12px;background:#e8dac5;overflow:hidden;flex:none;display:grid;place-items:center;color:var(--brown2);font-weight:800}
+.av img{width:100%;height:100%;object-fit:cover}
+.av.lg{width:96px;height:96px;border-radius:24px}
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700}
+.badge.on{background:#e3f2e9;color:var(--ok)}.badge.off{background:#f6e0dd;color:var(--bad)}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;direction:ltr;unicode-bidi:embed}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.cards-m{display:none}
+@media(max-width:760px){.who{display:none}.topbar{padding:10px 12px;gap:6px}.topbar img.logo{height:28px}.pill{padding:6px 10px}}
+html,body{overflow-x:hidden;max-width:100%}
+@media(max-width:760px){.tablewrap table{display:none}.tablewrap{background:none;border:0}.cards-m{display:grid;gap:10px}}
+.mc{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px}
+.mc .meta{color:var(--muted);font-size:13px;margin:6px 0 10px}
+.login{max-width:400px;margin:8vh auto;padding:0 16px}
+.login .card{padding:24px}
+.login img{display:block;margin:0 auto 14px;width:200px;mix-blend-mode:multiply}
+label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
+.f{margin-bottom:12px}
+.err{background:#f9e6e3;color:var(--bad);border-radius:10px;padding:8px 12px;margin:0 0 12px;font-size:14px}
+.fe{color:var(--bad);font-size:12px;margin-top:3px}
+.modal{position:fixed;inset:0;background:#29251f80;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:760px){.modal{align-items:center}}
+.sheet{background:#fff;width:100%;max-width:760px;max-height:94vh;overflow:auto;border-radius:20px 20px 0 0;padding:20px}
+@media(min-width:760px){.sheet{border-radius:20px}}
+.sheet h3{margin:0 0 14px;color:var(--brown2)}
+.fgrid{display:grid;gap:0 12px;grid-template-columns:1fr}
+@media(min-width:620px){.fgrid{grid-template-columns:1fr 1fr}}
+.photo-row{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.sheet .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+.preview{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:760px){.preview{grid-template-columns:auto 1fr}}
+.preview iframe{width:100%;max-width:390px;height:640px;border:1px solid var(--line);border-radius:18px;background:#fff;margin:0 auto}
+.qrbox{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;display:inline-block;line-height:0}
+.qrbox svg{width:220px;height:220px}
+.urlrow{display:flex;gap:8px;margin:10px 0}
+.urlrow input{direction:ltr;text-align:left}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#29251f;color:#fff;padding:10px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:99}
+.toast.on{opacity:1}
+.deptbar{display:flex;align-items:center;gap:10px;margin:8px 0}
+.deptbar i{display:block;height:10px;border-radius:6px;background:linear-gradient(90deg,var(--brown),var(--gold))}
+.muted{color:var(--muted)}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.audit td{font-size:13px}
+</style>
+</head>
+<body>
+<div id="loginView" class="login hidden">
+  <div class="card">
+    <img src="2-logo.jpg" alt="SIMTA">
+    <div style="text-align:center;margin-bottom:12px"><button class="pill langbtn" type="button">English</button></div>
+    <h2 data-i="loginTitle" style="text-align:center"></h2>
+    <div id="loginErr" class="err hidden"></div>
+    <form id="loginForm" autocomplete="on">
+      <div class="f"><label for="lemail" data-i="email"></label><input id="lemail" type="email" autocomplete="username" required dir="ltr"></div>
+      <div class="f"><label for="lpass" data-i="password"></label><input id="lpass" type="password" autocomplete="current-password" required dir="ltr"></div>
+      <div class="f hidden" id="lcodeRow"><label for="lcode" data-i="code"></label><input id="lcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" dir="ltr"></div>
+      <button class="btn" style="width:100%" type="submit" data-i="signIn"></button>
+    </form>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+  <header class="topbar">
+    <img class="logo" src="2-logo.jpg" alt="SIMTA">
+    <div class="sp"></div>
+    <span class="who" id="who"></span>
+    <button class="pill langbtn" type="button">English</button>
+    <button class="pill" id="twoFaBtn" type="button" data-i="twoFa"></button>
+    <button class="pill" id="logoutBtn" type="button" data-i="signOut"></button>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="dash" data-i="tabDash"></button>
+    <button class="tab" role="tab" data-tab="emps" data-i="tabEmps"></button>
+    <button class="tab hidden" role="tab" data-tab="audit" id="auditTab" data-i="tabAudit"></button>
+  </nav>
+  <main>
+    <section id="dash"></section>
+    <section id="emps" class="hidden"></section>
+    <section id="audit" class="hidden"></section>
+  </main>
+</div>
+
+<div id="modalHost"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>
