@@ -6,7 +6,7 @@ const LANG_KEY = "simta_admin_lang";
 
 const I = {
  ar: {
-  title:"SIMTA | لوحة التحكم", loginTitle:"تسجيل دخول المسؤول", email:"البريد الإلكتروني", password:"كلمة المرور", signIn:"دخول", signOut:"خروج",
+  twoFa:"التحقق بخطوتين", code:"رمز التحقق (6 أرقام)", codeNeeded:"أدخل الرمز من تطبيق المصادقة", twoFaOn:"التحقق بخطوتين مفعّل لحسابك.", twoFaOff:"التحقق بخطوتين غير مفعّل. فعّله لحماية حسابك.", twoFaStart:"بدء التفعيل", twoFaSecret:"أضف هذا المفتاح إلى تطبيق المصادقة (أو امسح الرمز)، ثم أدخل الرمز الظاهر.", twoFaEnable:"تفعيل", twoFaDisable:"إيقاف", twoFaEnabled:"تم تفعيل التحقق بخطوتين", twoFaDisabled:"تم إيقاف التحقق بخطوتين", title:"SIMTA | لوحة التحكم", loginTitle:"تسجيل دخول المسؤول", email:"البريد الإلكتروني", password:"كلمة المرور", signIn:"دخول", signOut:"خروج",
   tabDash:"نظرة عامة", tabEmps:"الموظفون", tabAudit:"سجل التغييرات", total:"إجمالي الموظفين", active:"نشط", inactive:"غير نشط", withPhoto:"لديهم صورة",
   byDept:"حسب القسم", recent:"آخر التعديلات", noDept:"بدون قسم", search:"بحث بالرقم أو الاسم أو القسم أو المسمى", all:"الكل", add:"إضافة موظف",
   id:"الرقم الوظيفي", nameAr:"الاسم بالعربي", nameEn:"الاسم بالإنجليزي", titleAr:"المسمى بالعربي", titleEn:"المسمى بالإنجليزي", dept:"القسم (رمز)", deptAr:"القسم بالعربي", deptEn:"القسم بالإنجليزي",
@@ -20,7 +20,7 @@ const I = {
   cardPreviewNote:"المعاينة تعرض البطاقة العامة الحقيقية. الموظف الموقوف يظهر كغير موجود.", extra:"حقول إضافية (اختياري)", extraHint:"مفتاح=قيمة، سطر لكل حقل"
  },
  en: {
-  title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", signOut:"Sign out",
+  twoFa:"Two-factor", code:"Authenticator code (6 digits)", codeNeeded:"Enter the code from your authenticator app", twoFaOn:"Two-factor sign-in is on for your account.", twoFaOff:"Two-factor sign-in is off. Turn it on to protect your account.", twoFaStart:"Start setup", twoFaSecret:"Add this key to your authenticator app (or scan the code), then enter the code it shows.", twoFaEnable:"Turn on", twoFaDisable:"Turn off", twoFaEnabled:"Two-factor sign-in is on", twoFaDisabled:"Two-factor sign-in is off", title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", signOut:"Sign out",
   tabDash:"Overview", tabEmps:"Employees", tabAudit:"Audit log", total:"Total employees", active:"Active", inactive:"Inactive", withPhoto:"With photo",
   byDept:"By department", recent:"Recent changes", noDept:"No department", search:"Search by ID, name, department or job title", all:"All", add:"Add employee",
   id:"Employee ID", nameAr:"Arabic name", nameEn:"English name", titleAr:"Arabic job title", titleEn:"English job title", dept:"Department (code)", deptAr:"Arabic department", deptEn:"English department",
@@ -74,7 +74,7 @@ async function api(method, path, body, opts = {}) {
   catch (e) { const er = new Error(t("netErr")); er.net = true; throw er; }
   let data = null; try { data = await res.json(); } catch { /* empty */ }
   if (res.status === 401 && token && !path.startsWith("/api/auth/login")) { signedOut(t("sessionEnd")); const er = new Error(t("sessionEnd")); er.auth = true; throw er; }
-  if (!res.ok) { const er = new Error((data && data.error) || ("HTTP " + res.status)); er.status = res.status; er.details = data && data.details; throw er; }
+  if (!res.ok) { const er = new Error((data && data.error) || ("HTTP " + res.status)); er.status = res.status; er.code = data && data.code; er.details = data && data.details; throw er; }
   return data;
 }
 
@@ -88,11 +88,37 @@ $("#loginForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const btn = $("#loginForm button"); btn.disabled = true;
   try {
-    const r = await api("POST", "/api/auth/login", { email: $("#lemail").value, password: $("#lpass").value });
-    token = r.token; sessionStorage.setItem(TOKEN_KEY, token); $("#lpass").value = "";
+    const body = { email: $("#lemail").value, password: $("#lpass").value };
+    if (!$("#lcodeRow").classList.contains("hidden")) body.totp = $("#lcode").value;
+    const r = await api("POST", "/api/auth/login", body);
+    token = r.token; sessionStorage.setItem(TOKEN_KEY, token); $("#lpass").value = ""; $("#lcode").value = ""; $("#lcodeRow").classList.add("hidden");
     await enter();
-  } catch (e) { signedOut(e.message); }
+  } catch (e) {
+    if (e.code === "totp_required") { signedOut(t("codeNeeded")); $("#lcodeRow").classList.remove("hidden"); $("#lcode").focus(); }
+    else { $("#lcode").value = ""; signedOut(e.message); }
+  }
   btn.disabled = false;
+});
+$("#twoFaBtn").addEventListener("click", () => {
+  const msg = el("p", { class: "muted" }, me.two_factor ? t("twoFaOn") : t("twoFaOff")); const area = el("div", {});
+  const done = async (m) => { closeModal(); toast(m); await enter(); };
+  const err = (e) => toast(e.message);
+  if (!me.two_factor) {
+    area.append(el("button", { class: "btn", type: "button", onclick: async (ev) => {
+      try {
+        const r = await api("POST", "/api/auth/2fa/setup"); ev.target.remove();
+        const qrHost = el("div", { class: "qrbox" }); qrHost.innerHTML = qrSvg(r.otpauth_uri); // generated locally; the secret never leaves this page
+        const code = el("input", { id: "tfCode", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", dir: "ltr" });
+        area.append(el("p", {}, t("twoFaSecret")), qrHost, el("p", { class: "mono", id: "tfSecret" }, r.secret), el("div", { class: "f" }, el("label", { for: "tfCode" }, t("code")), code),
+          el("button", { class: "btn", id: "tfEnable", type: "button", onclick: async () => { try { await api("POST", "/api/auth/2fa/enable", { code: code.value }); await done(t("twoFaEnabled")); } catch (e) { err(e); } } }, t("twoFaEnable")));
+      } catch (e) { err(e); }
+    } }, t("twoFaStart")));
+  } else {
+    const pw = el("input", { id: "tfPass", type: "password", autocomplete: "current-password", dir: "ltr" }), code = el("input", { id: "tfCode", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", dir: "ltr" });
+    area.append(el("div", { class: "f" }, el("label", { for: "tfPass" }, t("password")), pw), el("div", { class: "f" }, el("label", { for: "tfCode" }, t("code")), code),
+      el("button", { class: "btn danger", id: "tfDisable", type: "button", onclick: async () => { try { await api("POST", "/api/auth/2fa/disable", { password: pw.value, code: code.value }); await done(t("twoFaDisabled")); } catch (e) { err(e); } } }, t("twoFaDisable")));
+  }
+  openModal(el("div", {}, el("h3", {}, t("twoFa")), msg, area, el("div", { class: "foot" }, el("button", { class: "btn alt", type: "button", onclick: () => closeModal() }, t("close")))));
 });
 $("#logoutBtn").addEventListener("click", async () => { try { await api("POST", "/api/auth/logout"); } catch { /* ignore */ } signedOut(""); });
 const canEdit = () => me && (me.role === "admin" || me.role === "editor");
