@@ -76,3 +76,11 @@ Separate from production. Nothing here touches the production Pages deployment, 
 - The older Worker `simta-cards-staging-api` (account ea160894) is NOT used and has not been verified as isolated.
 - The Pages Preview environment has no variables or bindings. Preview deployments of this branch are public pages.dev URLs.
 - Before any production migration: take a D1 export or Time Travel bookmark, run `worker/scripts/preflight.sql`, then migrate. Compatibility with the existing production schema has not been verified.
+
+## Code audit (Nov 25) - summary
+
+Fixed: malformed %-encoding in ids returned 500 (now 400); login lockout was per email+IP only (added a per-IP cap and attempt pruning); `active` on user update accepted non-boolean values and bypassed the self-disable guard (now strict boolean, plus last-active-admin guard); data change and audit row are now one atomic D1 batch; role change now ends that user's sessions; admin form retried after a photo-upload failure hit 409 (now updates the created record).
+
+Known limits (not fixed): no per-email global limit, public ids are sequential and the public card has no rate limit, 403 attempts are not audited, audit `changes` may hold phone/email, `/api/employees` is capped at 200 rows, public photo cache up to 1 hour, token in sessionStorage, no 2FA/password reset/Cloudflare Access, photos stored as base64 in D1 (300 KB cap).
+
+Legacy: the old pages read `?id=SMT-xxx` from the URL and use data embedded in the page. The new card uses the same `?id=` shape, so existing QR links resolve to the new card URL form. Compatibility with the OLD D1 schema is UNVERIFIED (schema not available). Legacy files are unchanged.
