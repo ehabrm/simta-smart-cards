@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import fs from "node:fs";
+import { totpCode } from "../src/index.js";
 const B = "http://localhost:8799", S = "/downloads/shots/";
 const browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox"] });
 let pass = 0, fail = 0; const errors = []; const extReq = new Set(); const csp = [];
@@ -191,6 +192,31 @@ for (const l of [...new Set(l2)]) { if (!l.startsWith(B)) continue; const r = aw
 t("admin.html: no broken local assets", broken.length === 0, broken.join());
 const ext = await p.$$eval("script[src],link[href]", (n) => n.map((x) => x.src || x.href).filter((u) => !u.startsWith("http://localhost")));
 t("no third-party scripts/styles", ext.length === 0, ext.join());
+// ---------- two-factor sign-in in the real UI ----------
+p = await page(desktop); await p.goto(B + "/admin.html"); await p.waitForSelector("#loginForm");
+t("2FA: code field hidden on the first login screen", !(await p.isVisible("#lcode")));
+await p.fill("#lemail", "admin@example.com"); await p.fill("#lpass", "local test password 1"); await p.click("#loginForm button"); await p.waitForSelector("#appView:not(.hidden)");
+await p.click("#twoFaBtn"); await p.waitForSelector(".modal");
+t("2FA: dialog says it is off", /off|غير مفعّل/.test(await p.textContent(".modal p")));
+await p.click(".modal .btn"); await p.waitForSelector("#tfSecret");
+const sec = (await p.textContent("#tfSecret")).trim();
+t("2FA: secret (32 chars) and a QR are shown", /^[A-Z2-7]{32}$/.test(sec) && (await p.isVisible(".modal .qrbox svg")));
+await p.screenshot({ path: S + "ui-2fa-setup.png" });
+await p.fill("#tfCode", "000000"); await p.click("#tfEnable"); await p.waitForTimeout(600);
+t("2FA: a wrong code is refused and the dialog stays", await p.isVisible(".modal"));
+await p.fill("#tfCode", await totpCode(sec)); await p.click("#tfEnable"); await p.waitForSelector(".modal", { state: "detached" });
+t("2FA: enabled with a correct code", (await p.textContent("#toast")).length > 0);
+await p.click("#logoutBtn"); await p.waitForSelector("#loginView:not(.hidden)");
+await p.fill("#lemail", "admin@example.com"); await p.fill("#lpass", "local test password 1"); await p.click("#loginForm button"); await p.waitForSelector("#lcodeRow:not(.hidden)");
+t("2FA: password alone does not sign in; the code field appears", await p.isVisible("#lcode") && !(await p.isVisible("#appView")));
+await p.screenshot({ path: S + "ui-2fa-login-code.png" });
+await p.fill("#lpass", "local test password 1"); await p.fill("#lcode", "111111"); await p.click("#loginForm button"); await p.waitForTimeout(700);
+t("2FA: a wrong code keeps the user signed out", !(await p.isVisible("#appView")));
+await p.fill("#lpass", "local test password 1"); await p.fill("#lcode", await totpCode(sec, Date.now() + 30000)); await p.click("#loginForm button"); await p.waitForSelector("#appView:not(.hidden)");
+t("2FA: the right code signs in", true);
+await p.click("#twoFaBtn"); await p.waitForSelector("#tfDisable");
+await p.waitForTimeout(31000); /* a code can be used once, and only newer ones are accepted */ await p.fill("#tfPass", "local test password 1"); await p.fill("#tfCode", await totpCode(sec, Date.now() + 30000)); await p.click("#tfDisable"); await p.waitForSelector(".modal", { state: "detached" });
+t("2FA: can be turned off with password + code", true);
 await p.context().close();
 t("no external network requests (only localhost)", extReq.size === 0, [...extReq].join());
 const real = errors.filter((e) => !/Executing inline script/.test(e)); // the one deliberate injection probe is expected to be blocked
