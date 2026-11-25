@@ -121,6 +121,19 @@ await search("SMT-009"); t("created employee found", (await p.textContent("tr[da
 t("photo uploaded + shown", await p.locator("tr[data-id=SMT-009] .av img").count() === 1);
 const imgOk = await p.$eval("tr[data-id=SMT-009] .av img", (i) => new Promise((r) => i.complete ? r(i.naturalWidth) : (i.onload = () => r(i.naturalWidth))));
 t("photo renders (512px)", imgOk === 512, imgOk);
+// regression (code audit): create succeeds but the photo upload fails -> the retry must update the same record, not hit 409 "exists"
+await p.click("#addBtn"); await p.waitForSelector("#f_id");
+await p.fill("#f_id", "SMT-010");
+for (const [k, v] of Object.entries({ name_ar: "تجربة صورة", name_en: "Photo Retry", title_ar: "م", title_en: "R", phone: "+12025550160" })) await p.fill("#f_" + k, v);
+await p.setInputFiles("#f_photo", "/tmp/w/photo.png"); await p.waitForSelector("#photoPrev img");
+await p.route("**/api/admin/employees/SMT-010/photo", (r) => r.fulfill({ status: 500, contentType: "application/json", body: '{"error":"simulated photo failure"}' }));
+await p.click("#saveBtn"); await p.waitForSelector("#formErr:not(.hidden)");
+t("photo-upload failure after create shows an error and keeps the form open", (await p.textContent("#formErr")).includes("simulated") && (await p.locator(".modal").count()) === 1);
+await p.unroute("**/api/admin/employees/SMT-010/photo");
+await p.click("#saveBtn"); await p.waitForSelector(".modal", { state: "detached" });
+await search("SMT-010");
+t("retry after photo failure saved without a duplicate-ID error, photo now present", (await p.locator("tr[data-id=SMT-010]").count()) === 1 && (await p.locator("tr[data-id=SMT-010] .av img").count()) === 1);
+await search("SMT-009");
 // duplicate
 await p.click("#addBtn"); await p.fill("#f_id", "smt-009");
 for (const [k, v] of Object.entries({ name_ar: "س", name_en: "S", title_ar: "م", title_en: "R", phone: "+12025550151" })) await p.fill("#f_" + k, v);
