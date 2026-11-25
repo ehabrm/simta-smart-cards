@@ -215,6 +215,7 @@ const TEXT_FIELDS = [
 function openForm(emp) {
   const isNew = !emp; const data = emp || {};
   let pendingPhoto = null, removePhoto = false;
+  let createdId = null;
   const err = el("div", { class: "err hidden", id: "formErr" });
   const inputs = {};
   const fields = [];
@@ -248,8 +249,9 @@ function openForm(emp) {
     if (isNew) body.id = idIn.value;
     saveBtn.disabled = true;
     try {
-      const r = isNew ? await api("POST", "/api/admin/employees", body) : await api("PUT", "/api/admin/employees/" + data.id, body);
-      const id = r.employee.id;
+      // If the employee was already created by an earlier attempt of this form (e.g. the photo upload failed), update it instead of creating a duplicate.
+      const r = (isNew && !createdId) ? await api("POST", "/api/admin/employees", body) : await api("PUT", "/api/admin/employees/" + (createdId || data.id), (() => { const u = { ...body }; delete u.id; return u; })());
+      const id = r.employee.id; createdId = id; if (isNew) idIn.disabled = true;
       if (pendingPhoto) await api("PUT", `/api/admin/employees/${id}/photo`, undefined, { raw: pendingPhoto, contentType: pendingPhoto.type });
       else if (removePhoto && data.photo_url) await api("DELETE", `/api/admin/employees/${id}/photo`);
       closeModal(); toast(t("saved")); if (currentTab === "emps") loadEmps(); else showTab(currentTab);
