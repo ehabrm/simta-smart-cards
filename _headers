@@ -1,0 +1,16 @@
+# Cloudflare Pages response headers. Scoped to the NEW pages only; legacy pages are untouched.
+# frame-ancestors cannot be set by a <meta> CSP, so it lives here.
+/admin.html
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cache-Control: no-store
+/admin.js
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-store
+/card.html
+  Content-Security-Policy: frame-ancestors 'self'
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
