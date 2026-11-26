@@ -4,6 +4,7 @@
 
 const PBKDF2_ITER = 100000; // Workers cap
 const SESSION_HOURS = 8;
+const REMEMBER_DAYS = 30, REMEMBER_ABS_DAYS = 90, ROTATE_GRACE_MS = 30000; // remembered device: slides 30 days from last use, hard cap 90 days from the full sign-in
 const MAX_JSON = 16 * 1024;
 const MAX_PHOTO = 300 * 1024;
 const EMAIL_RE = /^[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[A-Za-z]{2,}$/;
@@ -354,9 +355,50 @@ async function login(request, env) {
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
   await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)").bind(await sha256Hex(token), u.id, nowIso(), expires).run();
-  await auditUserEvent(env, u.id, { id: u.id, email: u.email }, request, "login", "user", String(u.id), null);
+  const wantRemember = body.remember === true;
+  await auditUserEvent(env, u.id, { id: u.id, email: u.email }, request, "login", "user", String(u.id), wantRemember ? { remember: true } : null);
   const cu = await currentUser(new Request("https://x/", { headers: { Authorization: "Bearer " + token } }), env);
-  return { token, expires_at: expires, user: await userView(env, cu) };
+  const out = { token, expires_at: expires, user: await userView(env, cu) };
+  if (wantRemember) Object.assign(out, await issueRemember(env, u.id, randomHex(16), null));
+  return out;
+}
+// Create the next remember token of a family. absIso is the family's 90-day cap (null = a fresh family starting now).
+async function issueRemember(env, userId, family, absIso) {
+  const now = Date.now();
+  const abs = absIso || new Date(now + REMEMBER_ABS_DAYS * 86400e3).toISOString();
+  const exp = new Date(Math.min(now + REMEMBER_DAYS * 86400e3, Date.parse(abs))).toISOString();
+  const tok = randomHex(32);
+  await env.DB.prepare("INSERT INTO remember_tokens (token_hash,family,user_id,created_at,last_used_at,expires_at,abs_expires_at) VALUES (?,?,?,?,?,?,?)").bind(await sha256Hex(tok), family, userId, nowIso(), nowIso(), exp, abs).run();
+  return { remember_token: tok, remember_expires_at: exp };
+}
+// Exchange a remember token for a fresh 8-hour session and a rotated remember token. No password or 2FA is asked here: that was done at the sign-in that created the family.
+async function refresh(request, env) {
+  const b = await readJson(request);
+  const raw = String(b.remember_token || "");
+  if (!/^[0-9a-f]{64}$/.test(raw)) throw new HttpError(401, "unauthenticated", "Sign in required");
+  const th = await sha256Hex(raw);
+  const row = await env.DB.prepare("SELECT r.*, u.active AS u_active FROM remember_tokens r JOIN users u ON u.id=r.user_id WHERE r.token_hash=?").bind(th).first();
+  if (!row) throw new HttpError(401, "unauthenticated", "Sign in required");
+  const now = nowIso();
+  const revoke = () => env.DB.prepare("DELETE FROM remember_tokens WHERE family=?").bind(row.family).run();
+  if (row.rotated_at) {
+    if (Date.now() - Date.parse(row.rotated_at) <= ROTATE_GRACE_MS) throw new HttpError(409, "rotated", "Remembered sign-in was just renewed by another tab"); // concurrent tab: no revoke, the client re-reads its stored token
+    await revoke(); await auditUserEvent(env, row.user_id, null, request, "remember_reuse_revoked", "user", String(row.user_id), null);
+    throw new HttpError(401, "unauthenticated", "Sign in required");
+  }
+  if (row.expires_at < now || row.abs_expires_at < now || !row.u_active) { await revoke(); throw new HttpError(401, "unauthenticated", "Sign in required"); }
+  const mark = await env.DB.prepare("UPDATE remember_tokens SET rotated_at=? WHERE id=? AND rotated_at IS NULL").bind(now, row.id).run();
+  if (!mark.meta || mark.meta.changes !== 1) throw new HttpError(409, "rotated", "Remembered sign-in was just renewed by another tab");
+  await env.DB.prepare("DELETE FROM remember_tokens WHERE (expires_at<? OR abs_expires_at<?) OR (rotated_at IS NOT NULL AND rotated_at<?)").bind(now, now, new Date(Date.now() - 7 * 86400e3).toISOString()).run();
+  await env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now).run();
+  const token = randomHex(32);
+  const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)").bind(await sha256Hex(token), row.user_id, now, expires).run();
+  let cu;
+  try { cu = await currentUser(new Request("https://x/", { headers: { Authorization: "Bearer " + token } }), env); }
+  catch (e) { await revoke(); await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha256Hex(token)).run(); throw e; } // no company access left
+  const next = await issueRemember(env, row.user_id, row.family, row.abs_expires_at);
+  return { token, expires_at: expires, user: await userView(env, cu), ...next };
 }
 
 // ---------- maintenance switch (per company "temporarily unavailable" for visitor cards) ----------
@@ -505,6 +547,7 @@ async function route(request, env) {
     return json({ ok: true, user: u }, 201);
   }
   if (path === "/api/auth/login" && method === "POST") { await rateLimit(request, env, "auth"); return json(await login(request, env)); }
+  if (path === "/api/auth/refresh" && method === "POST") { await rateLimit(request, env, "auth"); return json(await refresh(request, env)); }
 
   // ---- authenticated ----
   if (path.startsWith("/api/auth/") || path.startsWith("/api/admin/")) {
@@ -531,6 +574,7 @@ async function route(request, env) {
       if (!step) await twoFaFail(env, user, 422, "bad_code", "That code is not valid");
       await commit(env, env.DB.prepare("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?").bind(step, user.id),
         env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").bind(user.id, user.token_hash),
+        env.DB.prepare("DELETE FROM remember_tokens WHERE user_id=?").bind(user.id),
         ...userAuditStmts(env, user, request, "2fa_enable", "user", String(user.id), null));
       return json({ ok: true });
     }
@@ -547,7 +591,10 @@ async function route(request, env) {
       return json({ ok: true });
     }
     if (path === "/api/auth/logout" && method === "POST") {
-      await commit(env, env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(user.token_hash), ...userAuditStmts(env, user, request, "logout", "user", String(user.id), null));
+      let rt = ""; try { rt = String((await readJson(request)).remember_token || ""); } catch { /* body is optional */ }
+      const stmts = [env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(user.token_hash)];
+      if (/^[0-9a-f]{64}$/.test(rt)) stmts.push(env.DB.prepare("DELETE FROM remember_tokens WHERE family=(SELECT family FROM remember_tokens WHERE token_hash=? AND user_id=?)").bind(await sha256Hex(rt), user.id)); // this device's remembered sign-in ends with the logout
+      await commit(env, ...stmts, ...userAuditStmts(env, user, request, "logout", "user", String(user.id), null));
       return json({ ok: true });
     }
 
@@ -629,7 +676,7 @@ async function route(request, env) {
         const o = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE is_super=1 AND active=1 AND id<>?").bind(uid).first();
         if (!o.n) throw new HttpError(422, "validation_failed", "At least one active platform admin must remain");
       }
-      ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // any change to access ends old sessions
+      ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid), env.DB.prepare("DELETE FROM remember_tokens WHERE user_id=?").bind(uid)); // any change to access ends old sessions and remembered devices
       if (Object.keys(changed).length) ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), changed, null));
       await commit(env, ...ops);
       return json({ ok: true });
@@ -818,7 +865,7 @@ async function route(request, env) {
       const ops = [];
       if (sets.length) ops.push(env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid));
       if (msets.length) ops.push(env.DB.prepare(`UPDATE user_companies SET ${msets.join(",")} WHERE user_id=? AND company_id=?`).bind(...mbinds, uid, scope.id));
-      if ("password" in b || "role" in b || b.active === false || b.reset_2fa === true) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // role change also ends old sessions
+      if ("password" in b || "role" in b || b.active === false || b.reset_2fa === true) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid), env.DB.prepare("DELETE FROM remember_tokens WHERE user_id=?").bind(uid)); // role change also ends old sessions and remembered devices
       ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b }, scope.id));
       await commit(env, ...ops);
       return json({ ok: true });
