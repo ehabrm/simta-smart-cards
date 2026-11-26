@@ -243,6 +243,7 @@ async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
     throw e;
   }
 }
+function attemptStmt(env, k) { return env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(k, Date.now()); }
 async function login(request, env) {
   const body = await readJson(request);
   const email = String(body.email || "").trim().toLowerCase();
@@ -260,25 +261,30 @@ async function login(request, env) {
   const h = await hashPassword(password, salt, u ? u.iterations : PBKDF2_ITER);
   let totpStep = 0, totpBad = false;
   if (u && u.active && timingSafeEqual(h, u.pass_hash) && u.totp_enabled) {
-    if (!body.totp) throw new HttpError(401, "totp_required", "Enter the 6-digit code from your authenticator app");
+    if (!body.totp) {
+      // Correct password but no code yet: count it against the account and IP limits and audit it (no password, code or secret is stored).
+      await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey), auditStmt(env, { id: u.id, email: u.email }, request, "login_totp_required", "user", String(u.id), null));
+      await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
+      throw new HttpError(401, "totp_required", "Enter the 6-digit code from your authenticator app");
+    }
     try { totpStep = await totpVerify(await openSecret(env, u.totp_secret, u.id), body.totp, u.totp_last_step); } catch (e) { if (e instanceof HttpError) throw e; totpStep = 0; }
     totpBad = !totpStep;
   }
   if (!u || !u.active || !timingSafeEqual(h, u.pass_hash) || totpBad) {
-    await commit(env, env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()), env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(ipKey, Date.now()),
+    await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey),
       auditStmt(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null)); // never store text that may be a mistyped password
     await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
-  await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run();
   if (totpStep) {
     // Atomic replay guard: only one concurrent login can advance totp_last_step past this code's step.
     const adv = await env.DB.prepare("UPDATE users SET totp_last_step=? WHERE id=? AND totp_last_step<?").bind(totpStep, u.id, totpStep).run();
     if (!adv.meta || adv.meta.changes !== 1) {
-      await commit(env, env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(key, Date.now()), env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(ipKey, Date.now()));
+      await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey), auditStmt(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", { reason: "code_replay" }));
       throw new HttpError(401, "invalid_credentials", "Invalid email or password");
     }
   }
+  await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run(); // fully authenticated: reset this account+IP counter
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(nowIso()).run();
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
@@ -490,6 +496,8 @@ async function route(request, env) {
         requireRole(user, "editor");
         const mime = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
         if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new HttpError(415, "unsupported_media_type", "Photo must be JPEG, PNG or WebP");
+        const declared = Number(request.headers.get("Content-Length") || 0);
+        if (declared > MAX_PHOTO) throw new HttpError(413, "too_large", `Photo must be 1 byte to ${MAX_PHOTO / 1024} KB`); // reject before reading the body
         const buf = new Uint8Array(await request.arrayBuffer());
         if (!buf.length || buf.length > MAX_PHOTO) throw new HttpError(413, "too_large", `Photo must be 1 byte to ${MAX_PHOTO / 1024} KB`);
         const magic = (mime === "image/jpeg" && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) ||
