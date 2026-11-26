@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://simta-cards-prod.ehabrmcr7.workers.dev; connect-src 'self' https://simta-cards-prod.ehabrmcr7.workers.dev; frame-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://simta-cards-prod.ehabrmcr7.workers.dev; connect-src 'self' https://simta-cards-prod.ehabrmcr7.workers.dev; frame-src 'self' https://falcom-smart-cards.pages.dev; font-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#4b2f18">
@@ -118,6 +118,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
     <div class="sp"></div>
     <span class="who" id="who"></span>
     <button class="pill langbtn" type="button">English</button>
+    <select class="pill hidden" id="coSwitch" aria-label="Company"></select>
     <button class="pill" id="twoFaBtn" type="button" data-i="twoFa"></button>
     <button class="pill" id="logoutBtn" type="button" data-i="signOut"></button>
   </header>
@@ -125,11 +126,15 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
     <button class="tab" role="tab" data-tab="dash" data-i="tabDash"></button>
     <button class="tab" role="tab" data-tab="emps" data-i="tabEmps"></button>
     <button class="tab hidden" role="tab" data-tab="audit" id="auditTab" data-i="tabAudit"></button>
+    <button class="tab hidden" role="tab" data-tab="users" id="usersTab" data-i="tabUsers"></button>
+    <button class="tab hidden" role="tab" data-tab="platform" id="platformTab" data-i="tabPlatform"></button>
   </nav>
   <main>
     <section id="dash"></section>
     <section id="emps" class="hidden"></section>
     <section id="audit" class="hidden"></section>
+    <section id="users" class="hidden"></section>
+    <section id="platform" class="hidden"></section>
   </main>
 </div>
 
