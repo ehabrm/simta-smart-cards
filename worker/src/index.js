@@ -6,7 +6,6 @@ const PBKDF2_ITER = 100000; // Workers cap
 const SESSION_HOURS = 8;
 const MAX_JSON = 16 * 1024;
 const MAX_PHOTO = 300 * 1024;
-const ID_RE = /^SMT-\d{3,6}$/;
 const EMAIL_RE = /^[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[A-Za-z]{2,}$/;
 
 const FIELDS = {
@@ -108,18 +107,38 @@ function redactChanges(c) {
   return out;
 }
 
-function corsHeaders(request, env) {
+// ---------- companies ----------
+// Every employee, user membership, audit row, counter and setting belongs to one company. A company is resolved from the URL
+// (/api/c/<slug>/...) or, for the legacy SIMTA routes (/api/...), is SIMTA (id 1). Rows are cached per Worker instance for 30 s.
+let CO_CACHE = { at: 0, rows: [] };
+async function companies(env, fresh = false) {
+  if (!fresh && Date.now() - CO_CACHE.at < 30000 && CO_CACHE.rows.length) return CO_CACHE.rows;
+  const { results } = await env.DB.prepare("SELECT * FROM companies ORDER BY id").all();
+  CO_CACHE = { at: Date.now(), rows: results };
+  return results;
+}
+const idRe = (co) => new RegExp(`^${co.prefix}-\\d{3,6}$`);
+const ANY_ID_RE = /^[A-Z]{3}-\d{3,6}$/;
+const SLUG_RE = /^[a-z][a-z0-9-]{1,29}$/;
+const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?$/;
+
+async function corsHeaders(request, env) {
   const origin = request.headers.get("Origin");
   const allowed = String(env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
   const h = { "Vary": "Origin" };
-  if (origin && allowed.includes(origin)) {
-    h["Access-Control-Allow-Origin"] = origin;
-    h["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS";
-    h["Access-Control-Allow-Headers"] = "Authorization,Content-Type";
-    h["Access-Control-Max-Age"] = "600";
+  if (origin) {
+    let ok = allowed.includes(origin);
+    if (!ok && env.DB) { try { ok = (await companies(env)).some((c) => c.active && String(c.allowed_origins || "").split(",").map((s) => s.trim()).includes(origin)); } catch { ok = false; } }
+    if (ok) {
+      h["Access-Control-Allow-Origin"] = origin;
+      h["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS";
+      h["Access-Control-Allow-Headers"] = "Authorization,Content-Type";
+      h["Access-Control-Max-Age"] = "600";
+    }
   }
   return h;
 }
+
 function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -173,23 +192,31 @@ export function validateEmployee(input, { partial = false } = {}) {
 }
 
 // ---------- shapes ----------
-function publicEmployee(r, env) {
-  const base = String(env.CARD_BASE_URL || "").replace(/\/$/, "");
-  // Public card shape: an explicit allowlist. Internal fields (department code, extra, audit/user data, active flag) never appear here.
+function cardUrlFor(co, env, id) {
+  const fromCo = co && co.card_base_url;
+  const base = fromCo ? String(co.card_base_url) : (co && co.id === 1 ? String(env.CARD_BASE_URL || "").replace(/\/$/, "") : "");
+  return base ? `${base}?id=${id}` : null;
+}
+function photoUrlFor(co, r) {
+  if (!r.photo_version) return null;
+  return co.id === 1 ? `/api/photos/${r.id}?v=${r.photo_version}` : `/api/c/${co.slug}/photos/${r.id}?v=${r.photo_version}`; // SIMTA keeps its original photo URL shape
+}
+function publicEmployee(r, env, co) {
+  // Public card shape: an explicit allowlist. Internal fields (department code, extra, audit/user data, active flag, company id) never appear here.
   return {
     id: r.id, name_ar: r.name_ar, name_en: r.name_en, title_ar: r.title_ar, title_en: r.title_en,
     dept_ar: r.dept_ar, dept_en: r.dept_en,
     phone: r.phone, whatsapp: r.whatsapp, email: r.email, location_ar: r.location_ar, location_en: r.location_en,
-    photo_url: r.photo_version ? `/api/photos/${r.id}?v=${r.photo_version}` : null,
-    card_url: base ? `${base}?id=${r.id}` : null,
+    photo_url: photoUrlFor(co, r),
+    card_url: cardUrlFor(co, env, r.id),
   };
 }
 function adminOnly(r) {
   let extra = {}; try { extra = JSON.parse(r.extra || "{}"); } catch { /* ignore */ }
   return { department: r.department, extra };
 }
-function adminEmployee(r, env) {
-  return { ...publicEmployee(r, env), ...adminOnly(r), active: !!r.active, created_at: r.created_at, updated_at: r.updated_at, deactivated_at: r.deactivated_at, created_by: r.created_by, updated_by: r.updated_by };
+function adminEmployee(r, env, co) {
+  return { ...publicEmployee(r, env, co), ...adminOnly(r), active: !!r.active, created_at: r.created_at, updated_at: r.updated_at, deactivated_at: r.deactivated_at, created_by: r.created_by, updated_by: r.updated_by };
 }
 
 // ---------- auth ----------
@@ -199,21 +226,41 @@ async function currentUser(request, env) {
   if (!m) throw new HttpError(401, "unauthenticated", "Sign in required");
   const th = await sha256Hex(m[1]);
   const row = await env.DB.prepare(
-    "SELECT u.id,u.email,u.name,u.role,u.active,u.totp_enabled,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?"
+    "SELECT u.id,u.email,u.name,u.role,u.active,u.totp_enabled,u.is_super,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?"
   ).bind(th).first();
   if (!row || !row.active || row.expires_at < nowIso()) throw new HttpError(401, "unauthenticated", "Session expired or invalid");
-  return { id: row.id, email: row.email, name: row.name, role: row.role, two_factor: !!row.totp_enabled, token_hash: th };
+  const { results } = await env.DB.prepare("SELECT uc.company_id,uc.role FROM user_companies uc JOIN companies c ON c.id=uc.company_id WHERE uc.user_id=? AND uc.active=1 AND c.active=1").bind(row.id).all();
+  const member = new Map(results.map((r) => [r.company_id, r.role]));
+  if (!row.is_super && !member.size) throw new HttpError(401, "unauthenticated", "Session expired or invalid"); // no company access left
+  return { id: row.id, email: row.email, name: row.name, legacy_role: row.role, is_super: !!row.is_super, member, two_factor: !!row.totp_enabled, token_hash: th };
 }
 const RANK = { viewer: 1, editor: 2, admin: 3 };
-function requireRole(user, role) {
-  if (RANK[user.role] < RANK[role]) throw new HttpError(403, "forbidden", "Your role does not allow this action");
+// Effective role of a user inside ONE company: platform owners are admin everywhere, everybody else only where they hold an active membership.
+function roleIn(user, co) { return user.is_super ? "admin" : (user.member.get(co.id) || null); }
+function requireRole(user, co, role) {
+  const r = roleIn(user, co);
+  if (!r || RANK[r] < RANK[role]) throw new HttpError(403, "forbidden", "Your role does not allow this action");
 }
-function auditStmt(env, user, request, action, entity, entityId, changes) {
-  return env.DB.prepare("INSERT INTO audit_log (ts,user_id,user_email,action,entity,entity_id,changes,ip) VALUES (?,?,?,?,?,?,?,?)")
+function requireSuper(user) { if (!user.is_super) throw new HttpError(403, "forbidden", "Your role does not allow this action"); }
+async function userView(env, user) {
+  const all = await companies(env);
+  const cs = all.filter((c) => c.active && (user.is_super || user.member.has(c.id))).map((c) => ({ id: c.id, slug: c.slug, prefix: c.prefix, name_ar: c.name_ar, name_en: c.name_en, role: roleIn(user, c), card_base_url: c.card_base_url || "" }));
+  const def = cs.find((c) => c.slug === "simta") || cs[0];
+  return { id: user.id, email: user.email, name: user.name, role: def ? def.role : user.legacy_role, two_factor: user.two_factor, platform_admin: user.is_super, companies: cs };
+}
+function auditStmt(env, user, request, action, entity, entityId, changes, companyId = null) {
+  return env.DB.prepare("INSERT INTO audit_log (ts,user_id,user_email,action,entity,entity_id,changes,ip,company_id) VALUES (?,?,?,?,?,?,?,?,?)")
     .bind(nowIso(), user ? user.id : null, user ? user.email : null, action, entity, entityId || null,
-      changes ? JSON.stringify(redactChanges(changes)).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null);
+      changes ? JSON.stringify(redactChanges(changes)).slice(0, 4000) : null, request.headers.get("CF-Connecting-IP") || null, companyId ?? null);
 }
 async function audit(...a) { await auditStmt(...a).run(); }
+// A user-level event (sign-in, 2FA) is recorded once per company the user belongs to, so each company's audit shows its own users' events and nobody else's.
+async function auditUserEvent(env, uid, user, request, action, entity, entityId, changes) {
+  let ids = [];
+  if (uid) { const { results } = await env.DB.prepare("SELECT company_id FROM user_companies WHERE user_id=? AND active=1").bind(uid).all(); ids = results.map((r) => r.company_id); }
+  if (!ids.length) ids = [null];
+  await commit(env, ...ids.map((cid) => auditStmt(env, user, request, action, entity, entityId, changes, cid)));
+}
 // Run the data change and its audit row in ONE D1 batch (a transaction): either both are stored or neither.
 // Wrong-code cap for the signed-in 2FA enable/disable steps (5 per user per 15 minutes, stored in D1 like the login lockout).
 async function twoFaGuard(env, user) {
@@ -225,20 +272,29 @@ async function twoFaFail(env, user, status, code, msg) {
   throw new HttpError(status, code, msg);
 }
 async function commit(env, ...stmts) { return env.DB.batch(stmts); }
-async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
+// Creates a login. Memberships: [{company_id, role}]. First-run setup (onlyIfEmpty) creates the platform owner with SIMTA admin membership.
+async function createUser(env, { email, name, role, password, onlyIfEmpty, memberships, isSuper }) {
   checkPassword(password);
   email = String(email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) throw new HttpError(422, "validation_failed", "Validation failed", { email: "invalid email" });
-  if (!RANK[role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" });
+  const ms = memberships || [];
+  if (!ms.length && !isSuper) throw new HttpError(422, "validation_failed", "Validation failed", { memberships: "at least one company" });
+  for (const m of ms) if (!RANK[m.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" });
+  const legacyRole = ms.length ? ms.reduce((a, m) => (RANK[m.role] > RANK[a] ? m.role : a), "viewer") : "viewer";
   const salt = randomHex(16);
   const hash = await hashPassword(password, salt, PBKDF2_ITER);
+  const ts = nowIso();
   try {
     // onlyIfEmpty (first-run setup): one atomic statement, so two concurrent setups cannot both create an admin.
-    const r = await env.DB.prepare(`INSERT INTO users (email,name,role,salt,pass_hash,iterations,active,created_at) ${onlyIfEmpty ? "SELECT ?,?,?,?,?,?,1,? WHERE NOT EXISTS (SELECT 1 FROM users)" : "VALUES (?,?,?,?,?,?,1,?)"}`)
-      .bind(email, cleanStr(name || "").slice(0, 100), role, salt, hash, PBKDF2_ITER, nowIso()).run();
+    const r = await env.DB.prepare(`INSERT INTO users (email,name,role,salt,pass_hash,iterations,active,created_at,is_super) ${onlyIfEmpty ? "SELECT ?,?,?,?,?,?,1,?,? WHERE NOT EXISTS (SELECT 1 FROM users)" : "VALUES (?,?,?,?,?,?,1,?,?)"}`)
+      .bind(email, cleanStr(name || "").slice(0, 100), legacyRole, salt, hash, PBKDF2_ITER, ts, isSuper ? 1 : 0).run();
     if (onlyIfEmpty && !r.meta.changes) throw new HttpError(409, "already_setup", "Setup already completed");
-    return { id: r.meta.last_row_id, email, role };
+    const uid = r.meta.last_row_id;
+    try { await commit(env, ...ms.map((m) => env.DB.prepare("INSERT INTO user_companies (user_id,company_id,role,active,created_at) VALUES (?,?,?,1,?)").bind(uid, m.company_id, m.role, ts))); }
+    catch (e) { await env.DB.prepare("DELETE FROM users WHERE id=?").bind(uid).run(); throw e; } // never leave a login without its memberships
+    return { id: uid, email, role: legacyRole };
   } catch (e) {
+    if (e instanceof HttpError) throw e;
     if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, "exists", "A user with this email already exists");
     throw e;
   }
@@ -266,19 +322,21 @@ async function login(request, env) {
   // Always run the hash so response time does not reveal whether the user exists.
   const salt = u ? u.salt : "00".repeat(16);
   const h = await hashPassword(password, salt, u ? u.iterations : PBKDF2_ITER);
+  let hasAccess = false;
+  if (u) hasAccess = !!u.is_super || !!(await env.DB.prepare("SELECT 1 AS x FROM user_companies uc JOIN companies c ON c.id=uc.company_id WHERE uc.user_id=? AND uc.active=1 AND c.active=1 LIMIT 1").bind(u.id).first());
   let totpStep = 0, totpBad = false;
-  if (u && u.active && timingSafeEqual(h, u.pass_hash) && u.totp_enabled) {
+  if (u && u.active && hasAccess && timingSafeEqual(h, u.pass_hash) && u.totp_enabled) {
     if (!body.totp) {
       // Correct password but no code yet: count it against the account and IP limits and audit it (no password, code or secret is stored).
-      await audit(env, { id: u.id, email: u.email }, request, "login_totp_required", "user", String(u.id), null);
+      await auditUserEvent(env, u.id, { id: u.id, email: u.email }, request, "login_totp_required", "user", String(u.id), null);
       await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
       throw new HttpError(401, "totp_required", "Enter the 6-digit code from your authenticator app");
     }
     try { totpStep = await totpVerify(await openSecret(env, u.totp_secret, u.id), body.totp, u.totp_last_step); } catch (e) { if (e instanceof HttpError) throw e; totpStep = 0; }
     totpBad = !totpStep;
   }
-  if (!u || !u.active || !timingSafeEqual(h, u.pass_hash) || totpBad) {
-    await audit(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null); // never store text that may be a mistyped password
+  if (!u || !u.active || !hasAccess || !timingSafeEqual(h, u.pass_hash) || totpBad) {
+    await auditUserEvent(env, u ? u.id : null, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null); // never store text that may be a mistyped password
     await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
@@ -286,7 +344,7 @@ async function login(request, env) {
     // Atomic replay guard: only one concurrent login can advance totp_last_step past this code's step.
     const adv = await env.DB.prepare("UPDATE users SET totp_last_step=? WHERE id=? AND totp_last_step<?").bind(totpStep, u.id, totpStep).run();
     if (!adv.meta || adv.meta.changes !== 1) {
-      await audit(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", { reason: "code_replay" });
+      await auditUserEvent(env, u.id, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", { reason: "code_replay" });
       throw new HttpError(401, "invalid_credentials", "Invalid email or password");
     }
   }
@@ -296,24 +354,18 @@ async function login(request, env) {
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
   await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)").bind(await sha256Hex(token), u.id, nowIso(), expires).run();
-  await audit(env, { id: u.id, email: u.email }, request, "login", "user", String(u.id), null);
-  return { token, expires_at: expires, user: { id: u.id, email: u.email, name: u.name, role: u.role, two_factor: !!u.totp_enabled } };
+  await auditUserEvent(env, u.id, { id: u.id, email: u.email }, request, "login", "user", String(u.id), null);
+  const cu = await currentUser(new Request("https://x/", { headers: { Authorization: "Bearer " + token } }), env);
+  return { token, expires_at: expires, user: await userView(env, cu) };
 }
 
-
-// ---------- maintenance switch (site-wide "temporarily unavailable" for visitor cards) ----------
-let settingsReady = false;
-async function ensureSettings(env) {
-  if (settingsReady) return;
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)").run();
-  settingsReady = true;
-}
-async function isMaintenance(env) {
-  try { await ensureSettings(env); const r = await env.DB.prepare("SELECT value FROM settings WHERE key='maintenance'").first(); return !!r && r.value === "1"; }
+// ---------- maintenance switch (per company "temporarily unavailable" for visitor cards) ----------
+async function isMaintenance(env, co) {
+  try { const r = await env.DB.prepare("SELECT value FROM company_settings WHERE company_id=? AND key='maintenance'").bind(co.id).first(); return !!r && r.value === "1"; }
   catch { return false; } // if the setting cannot be read, keep cards online
 }
-async function guardMaintenance(env) {
-  if (await isMaintenance(env)) throw new HttpError(503, "maintenance", "Temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
+async function guardMaintenance(env, co) {
+  if (await isMaintenance(env, co)) throw new HttpError(503, "maintenance", "Temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
 }
 
 // ---------- visit counters (aggregate only; never breaks a card) ----------
@@ -323,43 +375,36 @@ async function guardMaintenance(env) {
 // and written at most once per VIEWS_FLUSH_SECONDS (default 60) per isolate, capped per isolate per UTC day, so a traffic spike cannot
 // use up the D1 free write budget. A recycled isolate loses its unflushed counts (undercount). Not a global budget reserve.
 const BOT_RE = /bot|crawl|spider|slurp|preview|headless|facebookexternalhit|curl|wget|python|httpclient|monitor|uptime/i;
-const VIEWS_PENDING = new Map(); let viewsLastFlush = 0, viewsDay = "", viewsFlushes = 0, viewsReady = false;
-async function ensureViews(env) {
-  if (viewsReady) return;
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS card_views (day TEXT NOT NULL, employee_id TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, browsers INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, employee_id)) WITHOUT ROWID").run();
-  viewsReady = true;
-}
-async function noteView(env, request, url, id) {
+const VIEWS_PENDING = new Map(); let viewsLastFlush = 0, viewsDay = "", viewsFlushes = 0;
+async function noteView(env, request, url, id, co) {
   try {
     if (url.searchParams.get("preview") === "1" || BOT_RE.test(request.headers.get("User-Agent") || "")) return;
     const day = nowIso().slice(0, 10);
     if (day !== viewsDay) { viewsDay = day; viewsFlushes = 0; }
-    const k = day + "|" + id, e = VIEWS_PENDING.get(k) || { day, id, v: 0, b: 0 };
+    const k = day + "|" + id, e = VIEWS_PENDING.get(k) || { day, id, cid: co.id, v: 0, b: 0 };
     e.v++; if (url.searchParams.get("f") === "1") e.b++;
     VIEWS_PENDING.set(k, e);
     const every = Number(env.VIEWS_FLUSH_SECONDS ?? 60) * 1000, cap = Number(env.VIEWS_MAX_FLUSHES_PER_DAY || 200);
     if (Date.now() - viewsLastFlush < every || viewsFlushes >= cap) { if (VIEWS_PENDING.size > 500) VIEWS_PENDING.clear(); return; }
     viewsLastFlush = Date.now(); viewsFlushes++;
     const rows = [...VIEWS_PENDING.values()]; VIEWS_PENDING.clear();
-    await ensureViews(env);
-    await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT INTO card_views (day,employee_id,views,browsers) VALUES (?,?,?,?) ON CONFLICT(day,employee_id) DO UPDATE SET views=views+excluded.views, browsers=browsers+excluded.browsers").bind(r.day, r.id, r.v, r.b)));
+    await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT INTO card_views (day,employee_id,company_id,views,browsers) VALUES (?,?,?,?,?) ON CONFLICT(day,employee_id) DO UPDATE SET views=views+excluded.views, browsers=browsers+excluded.browsers").bind(r.day, r.id, r.cid, r.v, r.b)));
   } catch { /* analytics must never affect cards */ }
 }
-async function visitStats(env) {
+async function visitStats(env, co) {
   try {
-    await ensureViews(env);
     const d = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
-    const sum = async (from) => (await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v FROM card_views WHERE day>=?").bind(from).first()).v;
-    const day = async (x) => await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v, COALESCE(SUM(browsers),0) AS b FROM card_views WHERE day=?").bind(x).first();
+    const sum = async (from) => (await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v FROM card_views WHERE company_id=? AND day>=?").bind(co.id, from).first()).v;
+    const day = async (x) => await env.DB.prepare("SELECT COALESCE(SUM(views),0) AS v, COALESCE(SUM(browsers),0) AS b FROM card_views WHERE company_id=? AND day=?").bind(co.id, x).first();
     const t = await day(d(0)), y = await day(d(1));
-    const { results: top } = await env.DB.prepare("SELECT c.employee_id AS id, SUM(c.views) AS views, e.name_ar, e.name_en FROM card_views c LEFT JOIN employees e ON e.id=c.employee_id WHERE c.day>=? GROUP BY c.employee_id ORDER BY views DESC LIMIT 5").bind(d(29)).all();
+    const { results: top } = await env.DB.prepare("SELECT c.employee_id AS id, SUM(c.views) AS views, e.name_ar, e.name_en FROM card_views c LEFT JOIN employees e ON e.id=c.employee_id AND e.company_id=c.company_id WHERE c.company_id=? AND c.day>=? GROUP BY c.employee_id ORDER BY views DESC LIMIT 5").bind(co.id, d(29)).all();
     return { views: { today: t.v, yesterday: y.v, last7: await sum(d(6)), last30: await sum(d(29)), total: await sum("0000-00-00") }, browsers_approx: { today: t.b, yesterday: y.b }, top_30d: top, since_note: "Counts start when this feature was activated; day is UTC." };
   } catch { return null; }
 }
 
 // ---------- routes ----------
-async function getEmployee(env, id) {
-  return env.DB.prepare(`SELECT * FROM employees WHERE id=?`).bind(id).first();
+async function getEmployee(env, id, co) {
+  return env.DB.prepare(`SELECT * FROM employees WHERE id=? AND company_id=?`).bind(id, co.id).first();
 }
 function diff(before, after) {
   const c = {};
@@ -369,9 +414,25 @@ function diff(before, after) {
 function safeDecode(s) { try { return decodeURIComponent(s); } catch { throw new HttpError(400, "bad_id", "Invalid employee ID"); } }
 function esc(s) { return s.replace(/[\\%_]/g, (m) => "\\" + m); }
 
+function userAuditStmts(env, user, request, action, entity, entityId, changes) {
+  const ids = [...user.member.keys()]; if (!ids.length) ids.push(null);
+  return ids.map((cid) => auditStmt(env, user, request, action, entity, entityId, changes, cid));
+}
+function cleanCompanyInput(b, { partial = false } = {}) {
+  const out = {}, errors = {};
+  const txt = (k, max, req) => { if (!(k in b)) { if (!partial && req) errors[k] = "required"; return; } const v = cleanStr(b[k] ?? ""); if (req && !v) errors[k] = "required"; else if (v.length > max) errors[k] = `max ${max} characters`; else out[k] = v; };
+  txt("name_ar", 120, true); txt("name_en", 120, true);
+  if ("card_base_url" in b) { const v = String(b.card_base_url ?? "").trim(); if (v && !/^(https:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~\/-]*)?|http:\/\/localhost(:\d{1,5})?(\/[A-Za-z0-9._~\/-]*)?)$/.test(v)) errors.card_base_url = "must be an https URL (the part before ?id=)"; else out.card_base_url = v; }
+  if ("allowed_origins" in b) { const list = (Array.isArray(b.allowed_origins) ? b.allowed_origins : String(b.allowed_origins || "").split(",")).map((s) => String(s).trim()).filter(Boolean); if (list.some((o) => !ORIGIN_RE.test(o) || o === "*")) errors.allowed_origins = "exact origins only, e.g. https://example.com"; else out.allowed_origins = list.join(","); }
+  if ("active" in b) { if (typeof b.active !== "boolean") errors.active = "must be true or false"; else out.active = b.active ? 1 : 0; }
+  if (Object.keys(errors).length) throw new HttpError(422, "validation_failed", "Validation failed", errors);
+  return out;
+}
+const companyView = (c, full) => ({ id: c.id, slug: c.slug, prefix: c.prefix, name_ar: c.name_ar, name_en: c.name_en, ...(full ? { card_base_url: c.card_base_url, allowed_origins: c.allowed_origins, active: !!c.active } : {}) });
+
 async function route(request, env) {
   const url = new URL(request.url);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
+  let path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method;
   let m;
 
@@ -382,12 +443,22 @@ async function route(request, env) {
     return json({ ok: true, service: "SIMTA Cards API", mode: env.ENVIRONMENT || "staging", database: db });
   }
 
+  // Company scope: /api/c/<slug>/... selects a company; the legacy /api/... routes are SIMTA (id 1), unchanged for existing pages and QR links.
+  const all = await companies(env);
+  let co = null;
+  const cm = path.match(/^\/api\/c\/([a-z][a-z0-9-]*)(\/.*)$/);
+  if (cm) { co = all.find((c) => c.slug === cm[1] && c.active); if (!co) throw new HttpError(404, "not_found", "Not found"); path = "/api" + cm[2]; }
+  const scope = co || all.find((c) => c.id === 1);
+  if (!scope) throw new HttpError(503, "no_company", "Company configuration is missing");
+  const ID = idRe(scope);
+
   // ---- public ----
-  if (path === "/api/status" && method === "GET") { await rateLimit(request, env, "card"); return json({ maintenance: await isMaintenance(env) }, 200, { "Cache-Control": "no-store" }); }
+  if (path === "/api/status" && method === "GET") { await rateLimit(request, env, "card"); return json({ maintenance: await isMaintenance(env, scope) }, 200, { "Cache-Control": "no-store" }); }
   if (path === "/api/employees" && method === "GET") {
-    await currentUser(request, env); // directory/search needs a session (viewer or above); single cards below stay public by ID
+    const user = await currentUser(request, env); // directory/search needs a session (viewer or above of THIS company); single cards below stay public by ID
+    requireRole(user, scope, "viewer");
     const q = (url.searchParams.get("q") || "").trim().slice(0, 80);
-    let sql = `SELECT ${PUBLIC_COLS} FROM employees WHERE active=1`; const binds = [];
+    let sql = `SELECT ${PUBLIC_COLS} FROM employees WHERE company_id=? AND active=1`; const binds = [scope.id];
     if (q) {
       const like = `%${esc(q)}%`;
       sql += " AND (id LIKE ? ESCAPE '\\' OR name_ar LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR title_ar LIKE ? ESCAPE '\\' OR title_en LIKE ? ESCAPE '\\' OR dept_ar LIKE ? ESCAPE '\\' OR dept_en LIKE ? ESCAPE '\\' OR department LIKE ? ESCAPE '\\')";
@@ -397,26 +468,26 @@ async function route(request, env) {
     const off = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0);
     const tot = await env.DB.prepare(sql.replace(`SELECT ${PUBLIC_COLS} FROM`, "SELECT COUNT(*) AS n FROM")).bind(...binds).first();
     const { results } = await env.DB.prepare(sql + " ORDER BY id LIMIT ? OFFSET ?").bind(...binds, lim, off).all();
-    return json(results.map((r) => publicEmployee(r, env)), 200, { "X-Total-Count": String(tot.n) }); // bare array; total in header
+    return json(results.map((r) => publicEmployee(r, env, scope)), 200, { "X-Total-Count": String(tot.n) }); // bare array; total in header
   }
   if ((m = path.match(/^\/api\/employees\/([^/]+)$/)) && method === "GET") {
     await rateLimit(request, env, "card");
-    await guardMaintenance(env);
+    await guardMaintenance(env, scope);
     const id = normalizeId(safeDecode(m[1]));
-    if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
-    const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS}, active FROM employees WHERE id=?`).bind(id).first();
-    if (!r) throw new HttpError(404, "not_found", "Employee not found"); // deleted or never existed -> "card deleted" message
-    // A card switched off in admin is "under maintenance" for that card only: own code, so the card page shows a card-specific message (the site-wide one stays "maintenance"). Not counted as a view.
+    if (!ID.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
+    const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS}, active FROM employees WHERE id=? AND company_id=?`).bind(id, scope.id).first();
+    if (!r) throw new HttpError(404, "not_found", "Employee not found"); // deleted, never existed, or belongs to another company -> "card deleted" message
+    // A card switched off in admin is "under maintenance" for that card only: own code, so the card page shows a card-specific message (the company-wide one stays "maintenance"). Not counted as a view.
     if (!r.active) throw new HttpError(503, "card_maintenance", "This card is temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
-    await noteView(env, request, url, id);
-    return json(publicEmployee(r, env), 200); // bare object
+    await noteView(env, request, url, id, scope);
+    return json(publicEmployee(r, env, scope), 200); // bare object
   }
   if ((m = path.match(/^\/api\/photos\/([^/]+)$/)) && method === "GET") {
     await rateLimit(request, env, "card");
-    await guardMaintenance(env);
+    await guardMaintenance(env, scope);
     const id = normalizeId(safeDecode(m[1]));
-    if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
-    const p = await env.DB.prepare("SELECT p.mime,p.data_b64 FROM employee_photos p JOIN employees e ON e.id=p.employee_id WHERE p.employee_id=? AND e.active=1").bind(id).first();
+    if (!ID.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
+    const p = await env.DB.prepare("SELECT p.mime,p.data_b64 FROM employee_photos p JOIN employees e ON e.id=p.employee_id WHERE p.employee_id=? AND e.active=1 AND e.company_id=?").bind(id, scope.id).first();
     if (!p) throw new HttpError(404, "not_found", "No photo");
     const bin = Uint8Array.from(atob(p.data_b64), (c) => c.charCodeAt(0));
     return new Response(bin, { headers: { "Content-Type": p.mime, "Cache-Control": "private, no-cache, must-revalidate", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'", "Cross-Origin-Resource-Policy": "cross-origin" } });
@@ -429,8 +500,8 @@ async function route(request, env) {
     const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first();
     if (n.n > 0) throw new HttpError(409, "already_setup", "Setup already completed");
     if (!timingSafeEqual(String(body.setup_token || ""), env.SETUP_TOKEN)) throw new HttpError(403, "forbidden", "Invalid setup token");
-    const u = await createUser(env, { email: body.email, name: body.name, role: "admin", password: body.password, onlyIfEmpty: true });
-    await audit(env, { id: u.id, email: u.email }, request, "setup_admin", "user", String(u.id), null);
+    const u = await createUser(env, { email: body.email, name: body.name, role: "admin", password: body.password, onlyIfEmpty: true, isSuper: true, memberships: [{ company_id: 1, role: "admin" }] });
+    await audit(env, { id: u.id, email: u.email }, request, "setup_admin", "user", String(u.id), null, 1);
     return json({ ok: true, user: u }, 201);
   }
   if (path === "/api/auth/login" && method === "POST") { await rateLimit(request, env, "auth"); return json(await login(request, env)); }
@@ -439,11 +510,11 @@ async function route(request, env) {
   if (path.startsWith("/api/auth/") || path.startsWith("/api/admin/")) {
     await rateLimit(request, env, "api");
     const user = await currentUser(request, env);
-    request._u = user; // lets the top-level handler audit a role denial
+    request._u = user; request._co = scope.id; // lets the top-level handler audit a role denial
     // Optional enforcement: with REQUIRE_2FA=true, accounts without 2FA can only reach the /api/auth/ endpoints (to set it up).
     if (String(env.REQUIRE_2FA) === "true" && !user.two_factor && !path.startsWith("/api/auth/")) throw new HttpError(403, "two_factor_required", "Two-factor sign-in must be enabled for this account first");
 
-    if (path === "/api/auth/me" && method === "GET") return json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, two_factor: user.two_factor } });
+    if (path === "/api/auth/me" && method === "GET") return json({ user: await userView(env, user) });
     if (path === "/api/auth/2fa/setup" && method === "POST") {
       if (user.two_factor) throw new HttpError(409, "already_enabled", "Two-factor sign-in is already enabled");
       const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
@@ -460,7 +531,7 @@ async function route(request, env) {
       if (!step) await twoFaFail(env, user, 422, "bad_code", "That code is not valid");
       await commit(env, env.DB.prepare("UPDATE users SET totp_enabled=1, totp_last_step=? WHERE id=?").bind(step, user.id),
         env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").bind(user.id, user.token_hash),
-        auditStmt(env, user, request, "2fa_enable", "user", String(user.id), null));
+        ...userAuditStmts(env, user, request, "2fa_enable", "user", String(user.id), null));
       return json({ ok: true });
     }
     if (path === "/api/auth/2fa/disable" && method === "POST") {
@@ -472,37 +543,122 @@ async function route(request, env) {
       const step = okPw ? await totpVerify(await openSecret(env, row.totp_secret, user.id), b.code, row.totp_last_step) : 0;
       if (!okPw || !step) await twoFaFail(env, user, 403, "forbidden", "Password or code is not valid");
       await commit(env, env.DB.prepare("UPDATE users SET totp_enabled=0, totp_secret=NULL, totp_last_step=0 WHERE id=?").bind(user.id),
-        auditStmt(env, user, request, "2fa_disable", "user", String(user.id), null));
+        ...userAuditStmts(env, user, request, "2fa_disable", "user", String(user.id), null));
       return json({ ok: true });
     }
     if (path === "/api/auth/logout" && method === "POST") {
-      await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(user.token_hash).run();
-      await audit(env, user, request, "logout", "user", String(user.id), null);
+      await commit(env, env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(user.token_hash), ...userAuditStmts(env, user, request, "logout", "user", String(user.id), null));
       return json({ ok: true });
     }
 
-    if (path === "/api/admin/maintenance" && method === "GET") return json({ maintenance: await isMaintenance(env) });
+    // ---- platform (company-independent) ----
+    if (path === "/api/admin/companies" && method === "GET") {
+      const list = (await companies(env, true)).filter((c) => user.is_super || (c.active && user.member.has(c.id)));
+      return json({ companies: list.map((c) => ({ ...companyView(c, user.is_super), role: roleIn(user, c) })) });
+    }
+    if (path === "/api/admin/companies" && method === "POST") {
+      requireSuper(user);
+      const b = await readJson(request);
+      const slug = String(b.slug || "").trim().toLowerCase(), prefix = String(b.prefix || "").trim().toUpperCase();
+      const errs = {}; if (!SLUG_RE.test(slug)) errs.slug = "2-30 chars: a-z, 0-9, -"; if (!/^[A-Z]{3}$/.test(prefix)) errs.prefix = "exactly 3 letters A-Z";
+      if (Object.keys(errs).length) throw new HttpError(422, "validation_failed", "Validation failed", errs);
+      const v = cleanCompanyInput(b);
+      let id;
+      try {
+        const r = await env.DB.prepare("INSERT INTO companies (slug,prefix,name_ar,name_en,card_base_url,allowed_origins,active,created_at) VALUES (?,?,?,?,?,?,1,?)").bind(slug, prefix, v.name_ar, v.name_en, v.card_base_url || "", v.allowed_origins || "", nowIso()).run();
+        id = r.meta.last_row_id;
+      } catch (e) { if (/UNIQUE/i.test(String(e.message))) throw new HttpError(409, "exists", "A company with this slug or prefix already exists"); throw e; }
+      await audit(env, user, request, "company_create", "company", String(id), { slug, prefix, name_en: v.name_en }, id);
+      CO_CACHE.at = 0;
+      return json({ company: companyView((await companies(env, true)).find((c) => c.id === id), true) }, 201);
+    }
+    if ((m = path.match(/^\/api\/admin\/companies\/(\d+)$/)) && method === "PUT") {
+      requireSuper(user);
+      const cid = Number(m[1]); const cur = (await companies(env, true)).find((c) => c.id === cid);
+      if (!cur) throw new HttpError(404, "not_found", "Company not found");
+      const b = await readJson(request);
+      if ("slug" in b || "prefix" in b) throw new HttpError(422, "validation_failed", "Validation failed", { slug: "slug and prefix cannot be changed" });
+      const v = cleanCompanyInput(b, { partial: true });
+      const c = diff(cur, v);
+      if (!Object.keys(c).length) return json({ company: companyView(cur, true) });
+      const keys = Object.keys(v);
+      await commit(env, env.DB.prepare(`UPDATE companies SET ${keys.map((k) => k + "=?").join(",")} WHERE id=?`).bind(...keys.map((k) => v[k]), cid), auditStmt(env, user, request, "company_update", "company", String(cid), c, cid));
+      CO_CACHE.at = 0;
+      return json({ company: companyView((await companies(env, true)).find((x) => x.id === cid), true) });
+    }
+    if (path === "/api/admin/platform/audit" && method === "GET") {
+      requireSuper(user);
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
+      const { results } = await env.DB.prepare("SELECT a.id,a.ts,a.user_email,a.action,a.entity,a.entity_id,a.changes,a.company_id,c.slug AS company FROM audit_log a LEFT JOIN companies c ON c.id=a.company_id ORDER BY a.id DESC LIMIT ?").bind(limit).all();
+      return json({ entries: results });
+    }
+    if (path === "/api/admin/platform/users" && method === "GET") {
+      requireSuper(user);
+      const { results } = await env.DB.prepare("SELECT id,email,name,active,is_super,totp_enabled AS two_factor,created_at FROM users ORDER BY id").all();
+      const { results: ms } = await env.DB.prepare("SELECT uc.user_id,c.slug,uc.role,uc.active FROM user_companies uc JOIN companies c ON c.id=uc.company_id ORDER BY uc.user_id,c.id").all();
+      return json({ users: results.map((u) => ({ ...u, is_super: !!u.is_super, active: !!u.active, memberships: ms.filter((x) => x.user_id === u.id).map((x) => ({ company: x.slug, role: x.role, active: !!x.active })) })) });
+    }
+    const slugToId = (s) => { const c = all.find((x) => x.slug === s); if (!c) throw new HttpError(422, "validation_failed", "Validation failed", { memberships: "unknown company " + String(s).slice(0, 30) }); return c.id; };
+    if (path === "/api/admin/platform/users" && method === "POST") {
+      requireSuper(user);
+      const b = await readJson(request);
+      const ms = [...new Map((Array.isArray(b.memberships) ? b.memberships : []).map((x) => [slugToId(x.company), { company_id: slugToId(x.company), role: x.role }])).values()];
+      const u = await createUser(env, { email: b.email, name: b.name, password: b.password, memberships: ms, isSuper: b.is_super === true });
+      await commit(env, ...(ms.length ? ms.map((x) => auditStmt(env, user, request, "user_create", "user", String(u.id), { email: u.email, role: x.role, is_super: b.is_super === true }, x.company_id)) : [auditStmt(env, user, request, "user_create", "user", String(u.id), { email: u.email, is_super: b.is_super === true }, null)]));
+      return json({ user: u }, 201);
+    }
+    if ((m = path.match(/^\/api\/admin\/platform\/users\/(\d+)$/)) && method === "PUT") {
+      requireSuper(user);
+      const uid = Number(m[1]); const b = await readJson(request);
+      const target = await env.DB.prepare("SELECT id,is_super,active FROM users WHERE id=?").bind(uid).first();
+      if (!target) throw new HttpError(404, "not_found", "User not found");
+      if (uid === user.id && (b.is_super === false || b.active === false)) throw new HttpError(422, "validation_failed", "You cannot demote or disable yourself");
+      const ops = []; const sets = [], binds = []; const changed = {};
+      if ("is_super" in b) { if (typeof b.is_super !== "boolean") throw new HttpError(422, "validation_failed", "Validation failed", { is_super: "must be true or false" }); sets.push("is_super=?"); binds.push(b.is_super ? 1 : 0); changed.is_super = b.is_super; }
+      if ("active" in b) { if (typeof b.active !== "boolean") throw new HttpError(422, "validation_failed", "Validation failed", { active: "must be true or false" }); sets.push("active=?"); binds.push(b.active ? 1 : 0); changed.active = b.active; }
+      if ("password" in b) { checkPassword(b.password); const salt = randomHex(16); sets.push("salt=?", "pass_hash=?", "iterations=?"); binds.push(salt, await hashPassword(b.password, salt, PBKDF2_ITER), PBKDF2_ITER); changed.password_changed = true; }
+      if (b.reset_2fa === true) { sets.push("totp_enabled=0", "totp_secret=NULL", "totp_last_step=0"); changed.reset_2fa = true; }
+      if (sets.length) ops.push(env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid));
+      if (Array.isArray(b.memberships)) for (const x of b.memberships) {
+        const cid = slugToId(x.company); if (!RANK[x.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" });
+        ops.push(env.DB.prepare("INSERT INTO user_companies (user_id,company_id,role,active,created_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id,company_id) DO UPDATE SET role=excluded.role, active=excluded.active").bind(uid, cid, x.role, x.active === false ? 0 : 1, nowIso()));
+        ops.push(auditStmt(env, user, request, "membership_set", "user", String(uid), { role: x.role, active: x.active !== false }, cid));
+      }
+      if (!ops.length) throw new HttpError(400, "nothing_to_update", "Nothing to update");
+      if (target.is_super && (b.is_super === false || b.active === false)) {
+        const o = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE is_super=1 AND active=1 AND id<>?").bind(uid).first();
+        if (!o.n) throw new HttpError(422, "validation_failed", "At least one active platform admin must remain");
+      }
+      ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // any change to access ends old sessions
+      if (Object.keys(changed).length) ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), changed, null));
+      await commit(env, ...ops);
+      return json({ ok: true });
+    }
+
+    // ---- company-scoped admin (every query below carries scope.id; roles are checked against THIS company) ----
+    if (path === "/api/admin/maintenance" && method === "GET") { requireRole(user, scope, "viewer"); return json({ maintenance: await isMaintenance(env, scope) }); }
     if (path === "/api/admin/maintenance" && method === "PUT") {
-      requireRole(user, "admin");
+      requireRole(user, scope, "admin");
       const b = await readJson(request);
       if (typeof b.enabled !== "boolean") throw new HttpError(422, "validation_failed", "Validation failed", { enabled: "must be true or false" });
-      await ensureSettings(env);
-      const before = await isMaintenance(env);
+      const before = await isMaintenance(env, scope);
       await commit(env,
-        env.DB.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('maintenance',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").bind(b.enabled ? "1" : "0", nowIso()),
-        auditStmt(env, user, request, "maintenance", "site", null, { maintenance: { from: before, to: b.enabled } }));
+        env.DB.prepare("INSERT INTO company_settings (company_id,key,value,updated_at) VALUES (?,'maintenance',?,?) ON CONFLICT(company_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").bind(scope.id, b.enabled ? "1" : "0", nowIso()),
+        auditStmt(env, user, request, "maintenance", "site", null, { maintenance: { from: before, to: b.enabled } }, scope.id));
       return json({ maintenance: b.enabled });
     }
 
     if (path === "/api/admin/stats" && method === "GET") {
-      const t = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(active) AS active, SUM(CASE WHEN photo_version>0 THEN 1 ELSE 0 END) AS with_photo FROM employees").first();
-      const { results: depts } = await env.DB.prepare("SELECT department, dept_ar, dept_en, COUNT(*) AS n FROM employees WHERE active=1 GROUP BY department, dept_ar, dept_en ORDER BY n DESC").all();
-      const { results: recent } = await env.DB.prepare("SELECT id,name_ar,name_en,updated_at,active FROM employees ORDER BY updated_at DESC LIMIT 5").all();
-      const visits = await visitStats(env);
+      requireRole(user, scope, "viewer");
+      const t = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(active) AS active, SUM(CASE WHEN photo_version>0 THEN 1 ELSE 0 END) AS with_photo FROM employees WHERE company_id=?").bind(scope.id).first();
+      const { results: depts } = await env.DB.prepare("SELECT department, dept_ar, dept_en, COUNT(*) AS n FROM employees WHERE company_id=? AND active=1 GROUP BY department, dept_ar, dept_en ORDER BY n DESC").bind(scope.id).all();
+      const { results: recent } = await env.DB.prepare("SELECT id,name_ar,name_en,updated_at,active FROM employees WHERE company_id=? ORDER BY updated_at DESC LIMIT 5").bind(scope.id).all();
+      const visits = await visitStats(env, scope);
       return json({ visits, total: t.total || 0, active: t.active || 0, inactive: (t.total || 0) - (t.active || 0), with_photo: t.with_photo || 0, departments: depts, recent });
     }
 
     if (path === "/api/admin/employees" && method === "GET") {
+      requireRole(user, scope, "viewer");
       const q = (url.searchParams.get("q") || "").trim().slice(0, 80);
       const status = url.searchParams.get("status") || "all";
       const dept = (url.searchParams.get("department") || "").slice(0, 60);
@@ -514,7 +670,7 @@ async function route(request, env) {
       const dirParam = (url.searchParams.get("dir") || "asc").toLowerCase();
       if (dirParam !== "asc" && dirParam !== "desc") throw new HttpError(400, "bad_dir", "dir must be asc or desc");
       const orderBy = `${SORTS[sortKey]} COLLATE NOCASE ${dirParam.toUpperCase()}, id ASC`; // allowlisted column names only, never user text
-      const where = []; const binds = [];
+      const where = ["company_id=?"]; const binds = [scope.id];
       if (status === "active") where.push("active=1"); else if (status === "inactive") where.push("active=0");
       else if (status !== "all") throw new HttpError(400, "bad_status", "status must be all, active or inactive");
       if (dept) { where.push("department=?"); binds.push(dept); }
@@ -523,71 +679,73 @@ async function route(request, env) {
         where.push("(id LIKE ? ESCAPE '\\' OR name_ar LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR title_ar LIKE ? ESCAPE '\\' OR title_en LIKE ? ESCAPE '\\' OR dept_ar LIKE ? ESCAPE '\\' OR dept_en LIKE ? ESCAPE '\\' OR department LIKE ? ESCAPE '\\')");
         binds.push(like, like, like, like, like, like, like, like);
       }
-      const w = where.length ? " WHERE " + where.join(" AND ") : "";
+      const w = " WHERE " + where.join(" AND ");
       const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM employees" + w).bind(...binds).first();
       const { results } = await env.DB.prepare(`SELECT * FROM employees${w} ORDER BY ${orderBy} LIMIT ? OFFSET ?`).bind(...binds, limit, offset).all();
-      return json({ total: total.n, employees: results.map((r) => adminEmployee(r, env)) });
+      return json({ total: total.n, employees: results.map((r) => adminEmployee(r, env, scope)) });
     }
     if (path === "/api/admin/employees" && method === "POST") {
-      requireRole(user, "editor");
+      requireRole(user, scope, "editor");
       const body = await readJson(request);
       const id = normalizeId(body.id);
-      if (!ID_RE.test(id)) throw new HttpError(422, "validation_failed", "Validation failed", { id: "format SMT-001 (SMT- followed by 3 to 6 digits)" });
+      if (!ID.test(id)) throw new HttpError(422, "validation_failed", "Validation failed", { id: `format ${scope.prefix}-001 (${scope.prefix}- followed by 3 to 6 digits)` });
       const v = validateEmployee(body);
       const ts = nowIso();
       try {
-        await commit(env, env.DB.prepare(`INSERT INTO employees (id,name_ar,name_en,title_ar,title_en,department,dept_ar,dept_en,phone,whatsapp,email,location_ar,location_en,photo_version,active,extra,created_at,updated_at,created_by,updated_by)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,?,?,?,?,?)`)
-          .bind(id, v.name_ar, v.name_en, v.title_ar, v.title_en, v.department || "", v.dept_ar || "", v.dept_en || "", v.phone, v.whatsapp || "", v.email || "", v.location_ar || "", v.location_en || "", v.extra || "{}", ts, ts, user.email, user.email),
-          auditStmt(env, user, request, "create", "employee", id, v));
+        await commit(env, env.DB.prepare(`INSERT INTO employees (id,company_id,name_ar,name_en,title_ar,title_en,department,dept_ar,dept_en,phone,whatsapp,email,location_ar,location_en,photo_version,active,extra,created_at,updated_at,created_by,updated_by)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,?,?,?,?,?)`)
+          .bind(id, scope.id, v.name_ar, v.name_en, v.title_ar, v.title_en, v.department || "", v.dept_ar || "", v.dept_en || "", v.phone, v.whatsapp || "", v.email || "", v.location_ar || "", v.location_en || "", v.extra || "{}", ts, ts, user.email, user.email),
+          auditStmt(env, user, request, "create", "employee", id, v, scope.id));
       } catch (e) {
-        if (/UNIQUE|PRIMARY/i.test(String(e.message))) throw new HttpError(409, "exists", "An employee with this ID already exists");
+        if (/UNIQUE|PRIMARY/i.test(String(e.message))) throw new HttpError(409, "exists", "An employee with this ID already exists"); // ids are unique across companies; the message does not say which company holds it
         throw e;
       }
-      return json({ employee: adminEmployee(await getEmployee(env, id), env) }, 201);
+      return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) }, 201);
     }
     if ((m = path.match(/^\/api\/admin\/employees\/([^/]+)(\/(deactivate|reactivate|photo))?$/))) {
+      requireRole(user, scope, "viewer");
       const id = normalizeId(safeDecode(m[1]));
-      if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
+      if (!ID.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
       const sub = m[3];
-      const cur = await getEmployee(env, id);
+      const cur = await getEmployee(env, id, scope);
       if (!cur) throw new HttpError(404, "not_found", "Employee not found");
 
-      if (!sub && method === "GET") return json({ employee: adminEmployee(cur, env) });
+      if (!sub && method === "GET") return json({ employee: adminEmployee(cur, env, scope) });
       if (!sub && method === "DELETE") {
         // Permanent delete: admin only, and the caller must send the employee ID again as {"confirm": "SMT-001"}.
-        requireRole(user, "admin");
+        requireRole(user, scope, "admin");
         let body = null; try { body = await request.json(); } catch { body = null; }
         if (!body || normalizeId(String(body.confirm || "")) !== id) throw new HttpError(422, "confirmation_required", "Type the employee ID to confirm deletion", { confirm: "must equal the employee ID" });
         await commit(env, env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id),
-          env.DB.prepare("DELETE FROM employees WHERE id=?").bind(id),
-          auditStmt(env, user, request, "delete", "employee", id, { name_en: cur.name_en }));
+          env.DB.prepare("DELETE FROM employees WHERE id=? AND company_id=?").bind(id, scope.id),
+          auditStmt(env, user, request, "delete", "employee", id, { name_en: cur.name_en }, scope.id));
         return json({ deleted: true, id });
       }
       if (!sub && method === "PUT") {
-        requireRole(user, "editor");
+        requireRole(user, scope, "editor");
         const body = await readJson(request);
         if ("id" in body && normalizeId(body.id) !== id) throw new HttpError(422, "validation_failed", "Validation failed", { id: "ID cannot be changed" });
         if ("active" in body) throw new HttpError(422, "validation_failed", "Validation failed", { active: "use the deactivate/reactivate endpoints" });
+        if ("company_id" in body || "company" in body) throw new HttpError(422, "validation_failed", "Validation failed", { company: "an employee cannot move to another company" });
         const v = validateEmployee(body, { partial: true });
         const c = diff(cur, v);
-        if (!Object.keys(c).length) return json({ employee: adminEmployee(cur, env) });
+        if (!Object.keys(c).length) return json({ employee: adminEmployee(cur, env, scope) });
         const keys = Object.keys(v);
-        await commit(env, env.DB.prepare(`UPDATE employees SET ${keys.map((k) => k + "=?").join(",")}, updated_at=?, updated_by=? WHERE id=?`)
-          .bind(...keys.map((k) => v[k]), nowIso(), user.email, id), auditStmt(env, user, request, "update", "employee", id, c));
-        return json({ employee: adminEmployee(await getEmployee(env, id), env) });
+        await commit(env, env.DB.prepare(`UPDATE employees SET ${keys.map((k) => k + "=?").join(",")}, updated_at=?, updated_by=? WHERE id=? AND company_id=?`)
+          .bind(...keys.map((k) => v[k]), nowIso(), user.email, id, scope.id), auditStmt(env, user, request, "update", "employee", id, c, scope.id));
+        return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) });
       }
       if ((sub === "deactivate" || sub === "reactivate") && method === "POST") {
-        requireRole(user, "editor");
+        requireRole(user, scope, "editor");
         const on = sub === "reactivate" ? 1 : 0;
         if (cur.active !== on) {
-          await commit(env, env.DB.prepare("UPDATE employees SET active=?, deactivated_at=?, updated_at=?, updated_by=? WHERE id=?").bind(on, on ? null : nowIso(), nowIso(), user.email, id),
-            auditStmt(env, user, request, sub, "employee", id, null));
+          await commit(env, env.DB.prepare("UPDATE employees SET active=?, deactivated_at=?, updated_at=?, updated_by=? WHERE id=? AND company_id=?").bind(on, on ? null : nowIso(), nowIso(), user.email, id, scope.id),
+            auditStmt(env, user, request, sub, "employee", id, null, scope.id));
         }
-        return json({ employee: adminEmployee(await getEmployee(env, id), env) });
+        return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) });
       }
       if (sub === "photo" && method === "PUT") {
-        requireRole(user, "editor");
+        requireRole(user, scope, "editor");
         const mime = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
         if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new HttpError(415, "unsupported_media_type", "Photo must be JPEG, PNG or WebP");
         const declared = Number(request.headers.get("Content-Length") || 0);
@@ -602,58 +760,66 @@ async function route(request, env) {
         const ts = nowIso();
         await commit(env,
           env.DB.prepare("INSERT INTO employee_photos (employee_id,mime,data_b64,updated_at) VALUES (?,?,?,?) ON CONFLICT(employee_id) DO UPDATE SET mime=excluded.mime,data_b64=excluded.data_b64,updated_at=excluded.updated_at").bind(id, mime, btoa(bin), ts),
-          env.DB.prepare("UPDATE employees SET photo_version=photo_version+1, updated_at=?, updated_by=? WHERE id=?").bind(ts, user.email, id),
-          auditStmt(env, user, request, "photo_set", "employee", id, { bytes: buf.length, mime }));
-        return json({ employee: adminEmployee(await getEmployee(env, id), env) });
+          env.DB.prepare("UPDATE employees SET photo_version=photo_version+1, updated_at=?, updated_by=? WHERE id=? AND company_id=?").bind(ts, user.email, id, scope.id),
+          auditStmt(env, user, request, "photo_set", "employee", id, { bytes: buf.length, mime }, scope.id));
+        return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) });
       }
       if (sub === "photo" && method === "DELETE") {
-        requireRole(user, "editor");
+        requireRole(user, scope, "editor");
         await commit(env, env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id),
-          env.DB.prepare("UPDATE employees SET photo_version=0, updated_at=?, updated_by=? WHERE id=?").bind(nowIso(), user.email, id),
-          auditStmt(env, user, request, "photo_remove", "employee", id, null));
-        return json({ employee: adminEmployee(await getEmployee(env, id), env) });
+          env.DB.prepare("UPDATE employees SET photo_version=0, updated_at=?, updated_by=? WHERE id=? AND company_id=?").bind(nowIso(), user.email, id, scope.id),
+          auditStmt(env, user, request, "photo_remove", "employee", id, null, scope.id));
+        return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) });
       }
       throw new HttpError(405, "method_not_allowed", "Method not allowed");
     }
 
     if (path === "/api/admin/audit" && method === "GET") {
-      requireRole(user, "admin");
+      requireRole(user, scope, "admin");
       const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
-      const { results } = await env.DB.prepare("SELECT id,ts,user_email,action,entity,entity_id,changes FROM audit_log ORDER BY id DESC LIMIT ?").bind(limit).all();
+      const { results } = await env.DB.prepare("SELECT id,ts,user_email,action,entity,entity_id,changes FROM audit_log WHERE company_id=? ORDER BY id DESC LIMIT ?").bind(scope.id, limit).all();
       return json({ entries: results });
     }
     if (path === "/api/admin/users" && method === "GET") {
-      requireRole(user, "admin");
-      const { results } = await env.DB.prepare("SELECT id,email,name,role,active,totp_enabled AS two_factor,created_at FROM users ORDER BY id").all();
+      requireRole(user, scope, "admin");
+      const { results } = await env.DB.prepare("SELECT u.id,u.email,u.name,uc.role,uc.active,u.totp_enabled AS two_factor,u.created_at FROM user_companies uc JOIN users u ON u.id=uc.user_id WHERE uc.company_id=? ORDER BY u.id").bind(scope.id).all();
       return json({ users: results });
     }
     if (path === "/api/admin/users" && method === "POST") {
-      requireRole(user, "admin");
+      requireRole(user, scope, "admin");
       const b = await readJson(request);
-      const u = await createUser(env, b);
-      await audit(env, user, request, "user_create", "user", String(u.id), { email: u.email, role: u.role });
-      return json({ user: u }, 201);
+      const u = await createUser(env, { email: b.email, name: b.name, password: b.password, memberships: [{ company_id: scope.id, role: b.role }] });
+      await audit(env, user, request, "user_create", "user", String(u.id), { email: u.email, role: u.role }, scope.id);
+      return json({ user: { id: u.id, email: u.email, role: u.role } }, 201);
     }
     if ((m = path.match(/^\/api\/admin\/users\/(\d+)$/)) && method === "PUT") {
-      requireRole(user, "admin");
+      requireRole(user, scope, "admin");
       const uid = Number(m[1]); const b = await readJson(request);
       if ("active" in b && typeof b.active !== "boolean") throw new HttpError(422, "validation_failed", "Validation failed", { active: "must be true or false" });
       if (uid === user.id && (b.active === false || (b.role && b.role !== "admin"))) throw new HttpError(422, "validation_failed", "You cannot demote or disable yourself");
-      const target = await env.DB.prepare("SELECT id,role,active FROM users WHERE id=?").bind(uid).first();
+      // The target must belong to THIS company; users of other companies do not exist from here.
+      const target = await env.DB.prepare("SELECT u.id,u.is_super,uc.role,uc.active FROM user_companies uc JOIN users u ON u.id=uc.user_id WHERE uc.company_id=? AND u.id=?").bind(scope.id, uid).first();
       if (!target) throw new HttpError(404, "not_found", "User not found");
       if (target.role === "admin" && target.active && (b.active === false || ("role" in b && b.role !== "admin"))) {
-        const o = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1 AND id<>?").bind(uid).first();
+        const o = await env.DB.prepare("SELECT COUNT(*) AS n FROM user_companies WHERE company_id=? AND role='admin' AND active=1 AND user_id<>?").bind(scope.id, uid).first();
         if (!o.n) throw new HttpError(422, "validation_failed", "At least one active admin must remain");
       }
-      const sets = []; const binds = [];
-      if ("role" in b) { if (!RANK[b.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" }); sets.push("role=?"); binds.push(b.role); }
-      if ("active" in b) { sets.push("active=?"); binds.push(b.active ? 1 : 0); }
+      const sets = []; const binds = []; const msets = []; const mbinds = [];
+      if ("role" in b) { if (!RANK[b.role]) throw new HttpError(422, "validation_failed", "Validation failed", { role: "admin, editor or viewer" }); msets.push("role=?"); mbinds.push(b.role); }
+      if ("active" in b) { msets.push("active=?"); mbinds.push(b.active ? 1 : 0); }
+      if ("password" in b || b.reset_2fa === true) {
+        // A login that also belongs to another company (or is a platform admin) is shared identity: only a platform admin may change its password or 2FA.
+        const other = await env.DB.prepare("SELECT COUNT(*) AS n FROM user_companies WHERE user_id=? AND company_id<>?").bind(uid, scope.id).first();
+        if (!user.is_super && (other.n > 0 || target.is_super)) throw new HttpError(403, "forbidden", "Your role does not allow this action");
+      }
       if ("password" in b) { checkPassword(b.password); const salt = randomHex(16); sets.push("salt=?", "pass_hash=?", "iterations=?"); binds.push(salt, await hashPassword(b.password, salt, PBKDF2_ITER), PBKDF2_ITER); }
       if (b.reset_2fa === true) sets.push("totp_enabled=0", "totp_secret=NULL", "totp_last_step=0");
-      if (!sets.length) throw new HttpError(400, "nothing_to_update", "Nothing to update");
-      const ops = [env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid)];
+      if (!sets.length && !msets.length) throw new HttpError(400, "nothing_to_update", "Nothing to update");
+      const ops = [];
+      if (sets.length) ops.push(env.DB.prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).bind(...binds, uid));
+      if (msets.length) ops.push(env.DB.prepare(`UPDATE user_companies SET ${msets.join(",")} WHERE user_id=? AND company_id=?`).bind(...mbinds, uid, scope.id));
       if ("password" in b || "role" in b || b.active === false || b.reset_2fa === true) ops.push(env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(uid)); // role change also ends old sessions
-      ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b }));
+      ops.push(auditStmt(env, user, request, "user_update", "user", String(uid), { fields: Object.keys(b).filter((k) => k !== "password"), password_changed: "password" in b }, scope.id));
       await commit(env, ...ops);
       return json({ ok: true });
     }
@@ -664,7 +830,8 @@ async function route(request, env) {
 
 export default {
   async fetch(request, env) {
-    const cors = corsHeaders(request, env);
+    let cors = { "Vary": "Origin" };
+    try { cors = await corsHeaders(request, env); } catch { /* keep default */ }
     if (request.method === "OPTIONS") return new Response(null, { status: cors["Access-Control-Allow-Origin"] ? 204 : 403, headers: cors });
     let res;
     try {
@@ -676,7 +843,7 @@ export default {
         try {
           const u = request._u, since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
           const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE user_id=? AND action='denied' AND ts>?").bind(u.id, since).first();
-          if (c.n < 20) await audit(env, u, request, "denied", "request", new URL(request.url).pathname.slice(0, 120), { method: request.method, role: u.role });
+          if (c.n < 20) await audit(env, { id: u.id, email: u.email }, request, "denied", "request", new URL(request.url).pathname.slice(0, 120), { method: request.method, role: roleIn(u, { id: request._co }) }, u.is_super || u.member.has(request._co) ? request._co : null); // a denial is logged in the target company only when the user belongs to it; otherwise at platform level
         } catch {}
       }
       if (e instanceof HttpError) res = json({ error: e.message, code: e.code, ...(e.details ? { details: e.details } : {}) }, e.status, e.headers || {});
