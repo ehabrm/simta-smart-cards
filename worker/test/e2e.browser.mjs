@@ -134,6 +134,7 @@ await p.unroute("**/api/admin/employees/SMT-010/photo");
 await p.click("#saveBtn"); await p.waitForSelector(".modal", { state: "detached" });
 await search("SMT-010");
 t("retry after photo failure saved without a duplicate-ID error, photo now present", (await p.locator("tr[data-id=SMT-010]").count()) === 1 && (await p.locator("tr[data-id=SMT-010] .av img").count()) === 1);
+t("employee row meta has no empty separator when the department is empty", await p.evaluate(() => { const m = [...document.querySelectorAll(".meta")]; return m.length > 0 && m.every((x) => !/·\s*·/.test(x.textContent)); }));
 await search("SMT-009");
 // duplicate
 await p.click("#addBtn"); await p.fill("#f_id", "smt-009");
