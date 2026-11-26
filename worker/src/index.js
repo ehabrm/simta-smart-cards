@@ -245,13 +245,13 @@ async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
 }
 // Reserve one login attempt for the account+IP key and the IP key in ONE statement: the limit check and the insert cannot be split by a
 // concurrent request, so a burst cannot get past 5 per account+IP or 30 per IP. A reserved attempt stays counted (failure, missing 2FA code,
-// replay) and is removed again only when the sign-in fully succeeds. Returns the reservation timestamp.
+// replay) and is removed again only when the sign-in fully succeeds. Returns the rowid of the IP-key row (inserted last), the exact identity of this reservation.
 async function reserveAttempt(env, key, ipKey, since) {
   const ts = Date.now();
   const r = await env.DB.prepare("INSERT INTO login_attempts (key,ts) SELECT k,? FROM (SELECT ? AS k UNION ALL SELECT ?) WHERE (SELECT COUNT(*) FROM login_attempts WHERE key=? AND ts>?)<5 AND (SELECT COUNT(*) FROM login_attempts WHERE key=? AND ts>?)<30")
     .bind(ts, key, ipKey, key, since, ipKey, since).run();
   if (!r.meta || r.meta.changes < 2) throw new HttpError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.");
-  return ts;
+  return r.meta.last_row_id;
 }
 async function login(request, env) {
   const body = await readJson(request);
@@ -261,7 +261,7 @@ async function login(request, env) {
   const key = `${email.slice(0, 254)}|${ip}`;
   const ipKey = `ip|${ip}`; // per-IP cap too, so rotating e-mail names cannot bypass the limit or flood the audit log
   const since = Date.now() - 15 * 60 * 1000;
-  const resTs = await reserveAttempt(env, key, ipKey, since);
+  const resRow = await reserveAttempt(env, key, ipKey, since);
   const u = await env.DB.prepare("SELECT * FROM users WHERE email=?").bind(email).first();
   // Always run the hash so response time does not reveal whether the user exists.
   const salt = u ? u.salt : "00".repeat(16);
@@ -291,7 +291,7 @@ async function login(request, env) {
     }
   }
   await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run(); // fully authenticated: reset this account+IP counter
-  await env.DB.prepare("DELETE FROM login_attempts WHERE key=? AND ts=?").bind(ipKey, resTs).run(); // and give back this sign-in's slot in the IP counter
+  await env.DB.prepare("DELETE FROM login_attempts WHERE rowid=? AND key=?").bind(resRow, ipKey).run(); // give back exactly this sign-in's IP slot (by row id, never by time)
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(nowIso()).run();
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
