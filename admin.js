@@ -230,7 +230,7 @@ async function loadEmps() {
         el("td", {}, dpt(e)), el("td", { class: "mono" }, e.phone), el("td", {}, status(e)), el("td", {}, actions(e))))));
     const cards = el("div", { class: "cards-m" }, r.employees.map((e) => el("div", { class: "mc", "data-id": e.id },
       el("div", { class: "emp" }, avatar(e), el("div", { style: "flex:1" }, el("b", {}, name(e)), el("div", { class: "muted" }, sub(e))), status(e)),
-      el("div", { class: "meta" }, el("span", { class: "mono" }, e.id), " · ", dpt(e), " · ", el("span", { class: "mono" }, e.phone)), actions(e))));
+      el("div", { class: "meta" }, ...[el("span", { class: "mono" }, e.id), dpt(e), el("span", { class: "mono" }, e.phone)].filter((n) => (typeof n === "string" ? n.trim() : true)).flatMap((n, i) => (i ? [" · ", n] : [n]))), actions(e))));
     const pages = el("div", { class: "bar", style: "margin:12px 0 0;justify-content:space-between;align-items:center" },
       el("span", { class: "muted" }, `${t("count")}: ${r.total}`),
       el("div", { class: "acts" },

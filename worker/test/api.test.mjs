@@ -12,8 +12,8 @@ let pass = 0, fail = 0;
   console.log((ok ? "PASS" : "FAIL") + " migration applies cleanly on an empty database"); ok ? pass++ : fail++;
 }
 const t = (name, ok, extra = "") => { (ok ? pass++ : fail++); console.log((ok ? "PASS " : "FAIL ") + name + (ok ? "" : "  " + extra)); };
-async function call(method, path, { body, token, raw, ct, origin } = {}) {
-  const headers = {};
+async function call(method, path, { body, token, raw, ct, origin, headers: xh } = {}) {
+  const headers = { ...(xh || {}) };
   if (token) headers.Authorization = "Bearer " + token;
   if (origin) headers.Origin = origin;
   let b;
@@ -71,6 +71,7 @@ r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw:
 r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new TextEncoder().encode("<svg onload=alert(1)>"), ct: "image/png" }); t("fake image rejected", r.status === 415);
 r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new TextEncoder().encode("<svg/>"), ct: "image/svg+xml" }); t("svg rejected", r.status === 415);
 r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new Uint8Array(400 * 1024).fill(0xff), ct: "image/jpeg" }); t("oversize rejected", r.status === 413);
+r = await call("PUT", "/api/admin/employees/SMT-001/photo", { token: admin, raw: new Uint8Array(400 * 1024).fill(0x89), ct: "image/png", headers: { "Content-Length": String(400 * 1024) } }); t("oversize photo with a declared Content-Length rejected 413", r.status === 413);
 r = await call("GET", "/api/photos/SMT-001"); t("photo served with image type", r.status === 200 && r.headers.get("content-type") === "image/png");
 // roles
 r = await call("POST", "/api/admin/users", { token: admin, body: { email: "viewer@example.com", role: "viewer", password: "viewer password 123" } }); t("create viewer", r.status === 201);
