@@ -55,7 +55,7 @@ async function shareCard(){
  try{await navigator.clipboard.writeText(url);toast(t.copied)}catch(e){window.prompt(url,url)}
 }
 async function load(){
- if(!ID_RE.test(id)){state="notfound";render();return}
+ if(!ID_RE.test(id)){try{const s=await fetch(API+"/api/status",{cache:"no-store"});const d=await s.json();state=(d&&d.maintenance===true)?"maintenance":"notfound"}catch(e){state="notfound"}render();return}
  render();
  try{
   let q="";const day=new Date().toISOString().slice(0,10);let first=false;
