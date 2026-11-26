@@ -3,7 +3,7 @@ const API=(CFG.API_BASE||"").replace(/\/$/,"");
 const ID_RE=/^SMT-\d{3,6}$/;
 let R=document;const $=i=>R.querySelector("#"+i)||document.createElement("i");
 const params=new URLSearchParams(location.search);
-const id=(params.get("id")||window.SIMTA_DEFAULT_ID||"").trim().toUpperCase();
+const id=(params.get("id")||window.SIMTA_DEFAULT_ID||"SMT-001").trim().toUpperCase();
 let rep=null,state="loading",english=(params.get("lang")==="en");
 const T={
  ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",share:"مشاركة البطاقة",phoneL:"الهاتف",emailL:"البريد الإلكتروني",deptL:"القسم",regionL:"الموقع",desc:"سيمتا شركة متخصصة في الخرسانة الجاهزة، هدفنا أن نكون شريكًا يُعتمد عليه في مشروعك، والجودة هي أساس ما نقدّمه. تواصل مع ممثلنا لمعرفة المزيد.",nfT:"البطاقة غير موجودة",nfB:"هذه البطاقة غير موجودة أو تم حذفها.",mtT:"الموقع تحت الصيانة",mtB:"الموقع تحت الصيانة حاليًا. نعمل على تحسين الخدمة، يُرجى المحاولة لاحقًا.",unT:"تعذّر تحميل البطاقة",unB:"لا يمكن الوصول إلى الخدمة الآن. حاول مرة أخرى بعد قليل.",loading:"جارٍ التحميل…",chip:"رقم الموظف",copied:"تم نسخ رابط البطاقة"},
