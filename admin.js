@@ -42,12 +42,11 @@ const I = {
 };
 let lang = localStorage.getItem(LANG_KEY) || "ar";
 const REM_KEY = TOKEN_KEY + "_remember";
-function loadToken() {
-  const tk = sessionStorage.getItem(TOKEN_KEY); if (tk) return tk;
-  try { const r = JSON.parse(localStorage.getItem(REM_KEY) || "null"); if (r && r.token && r.exp > Date.now()) return r.token; } catch { /* ignore */ }
-  try { localStorage.removeItem(REM_KEY); } catch { /* ignore */ }
-  return "";
-}
+// Remembered device: a separate 30-day (sliding, 90-day cap) credential kept in localStorage. The 8-hour session token itself stays per tab (sessionStorage).
+function readRem() { try { const r = JSON.parse(localStorage.getItem(REM_KEY) || "null"); if (r && /^[0-9a-f]{64}$/.test(r.t || "") && r.exp > Date.now()) return r; } catch { /* ignore */ } clearRem(); return null; }
+function writeRem(tok, expIso) { try { localStorage.setItem(REM_KEY, JSON.stringify({ t: tok, exp: Date.parse(expIso) || 0 })); } catch { /* ignore */ } }
+function clearRem() { try { localStorage.removeItem(REM_KEY); } catch { /* ignore */ } }
+function loadToken() { return sessionStorage.getItem(TOKEN_KEY) || ""; }
 let token = loadToken();
 let me = null;
 const t = (k) => I[lang][k] || k;
@@ -96,14 +95,27 @@ async function api(method, path, body, opts = {}) {
   try { res = await fetch(API + path, { method, headers, body: b }); }
   catch (e) { const er = new Error(t("netErr")); er.net = true; throw er; }
   let data = null; try { data = await res.json(); } catch { /* empty */ }
+  if (res.status === 401 && token && !path.startsWith("/api/auth/login") && !opts.retried && readRem() && await refreshSession()) return api(method, path, body, { ...opts, retried: true });
   if (res.status === 401 && token && !path.startsWith("/api/auth/login")) { signedOut(t("sessionEnd")); const er = new Error(t("sessionEnd")); er.auth = true; throw er; }
   if (!res.ok) { const er = new Error((data && data.error) || ("HTTP " + res.status)); er.status = res.status; er.code = data && data.code; er.details = data && data.details; throw er; }
   return data;
 }
 
 // ---------- auth ----------
+async function refreshSession() {
+  for (let i = 0; i < 3; i++) {
+    const rec = readRem(); if (!rec) return false;
+    let res, d = null;
+    try { res = await fetch(API + "/api/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remember_token: rec.t }) }); d = await res.json(); } catch { if (!res) return false; }
+    if (res.ok && d && d.token) { token = d.token; sessionStorage.setItem(TOKEN_KEY, token); writeRem(d.remember_token, d.remember_expires_at); return true; }
+    if (res.status === 409) { for (let w = 0; w < 24; w++) { await new Promise((r) => setTimeout(r, 300)); const n = readRem(); if (!n || n.t !== rec.t) break; } continue; } // another tab just renewed it: wait for it to store the new token, then use that
+    if (res.status === 401) clearRem();
+    return false;
+  }
+  return false;
+}
 function signedOut(msg) {
-  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY); try { localStorage.removeItem(REM_KEY); } catch { /* ignore */ } sessionStorage.removeItem(CUR_KEY); cur = null;
+  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY); clearRem(); sessionStorage.removeItem(CUR_KEY); cur = null;
   $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden");
   const e = $("#loginErr"); if (msg) { e.textContent = msg; e.classList.remove("hidden"); } else e.classList.add("hidden");
 }
@@ -111,11 +123,11 @@ $("#loginForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const btn = $("#loginForm button"); btn.disabled = true;
   try {
-    const body = { email: $("#lemail").value, password: $("#lpass").value };
+    const body = { email: $("#lemail").value, password: $("#lpass").value, remember: $("#lremember").checked };
     if (!$("#lcodeRow").classList.contains("hidden")) body.totp = $("#lcode").value;
     const r = await api("POST", "/api/auth/login", body);
     token = r.token; sessionStorage.setItem(TOKEN_KEY, token);
-    try { if ($("#lremember").checked) localStorage.setItem(REM_KEY, JSON.stringify({ token, exp: Date.parse(r.expires_at) || 0 })); else localStorage.removeItem(REM_KEY); } catch { /* ignore */ } $("#lpass").value = ""; $("#lcode").value = ""; $("#lcodeRow").classList.add("hidden");
+    if (r.remember_token) writeRem(r.remember_token, r.remember_expires_at); else clearRem();
     await enter();
   } catch (e) {
     if (e.code === "totp_required") { signedOut(t("codeNeeded")); $("#lcodeRow").classList.remove("hidden"); $("#lcode").focus(); }
@@ -144,7 +156,7 @@ $("#twoFaBtn").addEventListener("click", () => {
   }
   openModal(el("div", {}, el("h3", {}, t("twoFa")), msg, area, el("div", { class: "foot" }, el("button", { class: "btn alt", type: "button", onclick: () => closeModal() }, t("close")))));
 });
-$("#logoutBtn").addEventListener("click", async () => { try { await api("POST", "/api/auth/logout"); } catch { /* ignore */ } signedOut(""); });
+$("#logoutBtn").addEventListener("click", async () => { try { const rec = readRem(); await api("POST", "/api/auth/logout", rec ? { remember_token: rec.t } : undefined, { retried: true }); } catch { /* ignore */ } signedOut(""); });
 const canEdit = () => me && (me.role === "admin" || me.role === "editor");
 
 async function enter() {
@@ -453,4 +465,7 @@ async function renderPlatform() {
 
 // ---------- start ----------
 applyLang();
-if (token) enter().catch((e) => { if (!e.auth) signedOut(e.message); }); else signedOut("");
+const start = () => enter().catch((e) => { if (!e.auth) signedOut(e.message); });
+if (token) start();
+else if (readRem()) refreshSession().then((ok) => (ok ? start() : signedOut("")));
+else signedOut("");
