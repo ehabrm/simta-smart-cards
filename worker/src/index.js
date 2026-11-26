@@ -404,8 +404,10 @@ async function route(request, env) {
     await guardMaintenance(env);
     const id = normalizeId(safeDecode(m[1]));
     if (!ID_RE.test(id)) throw new HttpError(400, "bad_id", "Invalid employee ID");
-    const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS} FROM employees WHERE id=? AND active=1`).bind(id).first();
-    if (!r) throw new HttpError(404, "not_found", "Employee not found"); // inactive looks the same as missing
+    const r = await env.DB.prepare(`SELECT ${PUBLIC_COLS}, active FROM employees WHERE id=?`).bind(id).first();
+    if (!r) throw new HttpError(404, "not_found", "Employee not found"); // deleted or never existed -> "card deleted" message
+    // A card switched off in admin is "under maintenance" for that card only: own code, so the card page shows a card-specific message (the site-wide one stays "maintenance"). Not counted as a view.
+    if (!r.active) throw new HttpError(503, "card_maintenance", "This card is temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
     await noteView(env, request, url, id);
     return json(publicEmployee(r, env), 200); // bare object
   }
