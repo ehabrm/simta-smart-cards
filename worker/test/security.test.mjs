@@ -180,6 +180,32 @@ let admin4 = r.j.token;
   const cc = await totpCode(hs, Date.now() + 30000);
   const both = await Promise.all([login("admin@example.com", { totp: cc }, ip5()), login("admin@example.com", { totp: cc }, ip5())]);
   t("two parallel logins with the same fresh code: exactly one succeeds", both.filter((x) => x.status === 200).length === 1, both.map((x) => x.status).join());
+  { // a replayed code must NOT clear the account counter (the counter is reset only after the replay guard passes)
+    const ip = ip5(), key = `admin@example.com|${ip}`;
+    for (let i = 0; i < 2; i++) await call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "wrong password!!" }, ip });
+    const before = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='${key}'`))[0].n;
+    r = await login("admin@example.com", { totp: cc }, ip); t("replayed code is refused (401)", r.status === 401 && r.j.code === "invalid_credentials");
+    const after = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='${key}'`))[0].n;
+    t("replayed code keeps and adds to the attempt counter (no reset)", before === 2 && after === 3, `${before}->${after}`);
+    t("a rejected replay is audited as login_failed (bad_code, or code_replay when it lost a race)", /bad_code|code_replay/.test(JSON.stringify(await rawq("SELECT changes FROM audit_log WHERE action='login_failed' ORDER BY id DESC LIMIT 1"))));
+  }
+  { // concurrent bursts cannot exceed the limits (limit check and insert are one statement)
+    const ip = ip5(), key = `admin@example.com|${ip}`;
+    const burst = await Promise.all(Array.from({ length: 12 }, () => call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "wrong password!!" }, ip })));
+    const ok401 = burst.filter((x) => x.status === 401).length, n429 = burst.filter((x) => x.status === 429).length;
+    t("12 parallel wrong logins: exactly 5 are processed, 7 get 429", ok401 === 5 && n429 === 7, `${ok401}/${n429}`);
+    t("attempt rows never exceed the limit under a burst", (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='${key}'`))[0].n === 5);
+    if (RT === "mock") { // the in-memory 20/min request limiter is raised so the 30-per-IP login cap itself is exercised
+      const ip2 = ip5(); const many = await Promise.all(Array.from({ length: 40 }, (_, i) => call("POST", "/api/auth/login", { body: { email: `user${i}@example.com`, password: "wrong password!!" }, ip: ip2, over: { RATE_AUTH_PER_MIN: "1000" } })));
+      t("40 parallel logins with rotating e-mails from one IP: exactly 30 processed", many.filter((x) => x.status === 401).length === 30 && many.filter((x) => x.status === 429).length === 10, many.map((x) => x.status).join());
+    }
+  }
+  { // a successful sign-in gives its IP slot back
+    const ip = ip5(); for (let i = 0; i < 10; i++) await call("POST", "/api/auth/login", { body: { email: `nobody${i}@example.com`, password: "x".repeat(12) }, ip });
+    const before = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='ip|${ip}'`))[0].n;
+    r = await call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: PW }, ip }); const after = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='ip|${ip}'`))[0].n;
+    t("successful login does not use up the IP limit", r.status === 200 && before === 10 && before === after, `${r.status} ${JSON.stringify(r.j)} ${before}->${after}`);
+  }
   await rawx("UPDATE users SET totp_secret=(SELECT totp_secret FROM users WHERE email='admin@example.com'), totp_enabled=1, totp_last_step=0 WHERE email='editor@example.com'");
   r = await login("editor@example.com", { totp: await totpCode(hs, Date.now() + 60000) }, ip5()); t("a 2FA secret copied onto another user's row does not unlock it (bound to user id)", r.status === 401, String(r.status));
   await rawx("UPDATE users SET totp_secret=NULL, totp_enabled=0, totp_last_step=0 WHERE email IN ('admin@example.com','editor@example.com')");
@@ -195,6 +221,14 @@ let admin4 = r.j.token;
   await rawx("UPDATE users SET totp_secret=NULL, totp_enabled=0, totp_last_step=0 WHERE email='admin@example.com'"); await rawx("DELETE FROM login_attempts");
 }
 
+// ---- schema: migration 0003 indexes exist
+{ const ix = (await rawq("SELECT name FROM sqlite_master WHERE type='index'")).map((x) => x.name);
+  t("migration 0003 indexes are present (sessions user, audit user/action/ts, login ts)", ["idx_sessions_user", "idx_audit_user_action", "idx_login_ts"].every((n) => ix.includes(n)), ix.join()); }
+if (RT === "mock") {
+  const before = JSON.stringify([await rawq("SELECT COUNT(*) AS n FROM users"), await rawq("SELECT COUNT(*) AS n FROM audit_log")]);
+  for (const st of fs.readFileSync(path.join(dir, "../migrations/0003_indexes.sql"), "utf8").replace(/^--.*$/gm, "").split(/;\s*\n/).map((x) => x.trim()).filter(Boolean)) await rawx(st);
+  t("migration 0003 can run twice and changes no rows", before === JSON.stringify([await rawq("SELECT COUNT(*) AS n FROM users"), await rawq("SELECT COUNT(*) AS n FROM audit_log")]));
+}
 // ---- 6. audit redaction and secrets
 await call("POST", "/api/admin/employees", { token: admin4, body: emp("SMT-961") });
 await call("PUT", "/api/admin/employees/SMT-961", { token: admin4, body: { phone: "+1 202 555 0199", email: "new.demo@example.com", title_en: "Lead" } });
