@@ -7,7 +7,7 @@ const LANG_KEY = "simta_admin_lang";
 const I = {
  ar: {
  tabUsers:"المستخدمون", tabPlatform:"المنصة", noCompany:"هذا الحساب غير مرتبط بأي شركة", company:"الشركة", uEmail:"البريد الإلكتروني", uName:"الاسم", uPass:"كلمة المرور (12 حرفًا على الأقل)", uRole:"الصلاحية", uActive:"نشط", uAdd:"إضافة مستخدم", uSave:"حفظ", uReset:"تغيير كلمة المرور", uNewPass:"كلمة المرور الجديدة", uDone:"تم الحفظ", roleAdmin:"مدير", roleEditor:"محرر", roleViewer:"مشاهد فقط", uOff:"موقوف", uSuper:"مدير المنصة", coList:"الشركات", coAdd:"إضافة شركة", coSlug:"المعرّف (slug)", coPrefix:"بادئة الرقم (3 أحرف)", coNameAr:"الاسم بالعربية", coNameEn:"الاسم بالإنجليزية", coBase:"رابط البطاقة", coOrigins:"المواقع المسموحة (CORS)", plUsers:"كل المستخدمين", plAudit:"سجل المنصة", memberships:"الشركات", coNone:"بدون", 
-  twoFa:"التحقق بخطوتين", code:"رمز التحقق (6 أرقام)", codeNeeded:"أدخل الرمز من تطبيق المصادقة", twoFaOn:"التحقق بخطوتين مفعّل لحسابك.", twoFaOff:"التحقق بخطوتين غير مفعّل. فعّله لحماية حسابك.", twoFaStart:"بدء التفعيل", twoFaSecret:"أضف هذا المفتاح إلى تطبيق المصادقة (أو امسح الرمز)، ثم أدخل الرمز الظاهر.", twoFaEnable:"تفعيل", twoFaDisable:"إيقاف", twoFaEnabled:"تم تفعيل التحقق بخطوتين", twoFaDisabled:"تم إيقاف التحقق بخطوتين", title:"SIMTA | لوحة التحكم", loginTitle:"تسجيل دخول المسؤول", email:"البريد الإلكتروني", password:"كلمة المرور", signIn:"دخول", signOut:"خروج",
+  twoFa:"التحقق بخطوتين", code:"رمز التحقق (6 أرقام)", codeNeeded:"أدخل الرمز من تطبيق المصادقة", twoFaOn:"التحقق بخطوتين مفعّل لحسابك.", twoFaOff:"التحقق بخطوتين غير مفعّل. فعّله لحماية حسابك.", twoFaStart:"بدء التفعيل", twoFaSecret:"أضف هذا المفتاح إلى تطبيق المصادقة (أو امسح الرمز)، ثم أدخل الرمز الظاهر.", twoFaEnable:"تفعيل", twoFaDisable:"إيقاف", twoFaEnabled:"تم تفعيل التحقق بخطوتين", twoFaDisabled:"تم إيقاف التحقق بخطوتين", title:"SIMTA | لوحة التحكم", loginTitle:"تسجيل دخول المسؤول", email:"البريد الإلكتروني", password:"كلمة المرور", signIn:"دخول", remember:"تذكّر هذا الجهاز", signOut:"خروج",
   tabDash:"نظرة عامة", mtTitle:"إيقاف الموقع مؤقتًا", mtOnDesc:"الموقع متوقف الآن: الزوار يرون رسالة \"متوقف مؤقتًا\" بدل البطاقات. لوحة الأدمن تعمل.", mtOffDesc:"الموقع يعمل. عند الإيقاف يرى الزوار رسالة \"متوقف مؤقتًا\" بدل البطاقات، وتبقى لوحة الأدمن تعمل.", mtDisable:"إيقاف الموقع", mtEnable:"إعادة تشغيل الموقع", mtConfDis:"إيقاف عرض كل البطاقات للزوار؟", mtConfEn:"إعادة تشغيل الموقع وعرض البطاقات؟", mtDoneOn:"تم إيقاف الموقع", mtDoneOff:"تم تشغيل الموقع", mtBadge:"متوقف", mtBadgeOk:"يعمل", tabEmps:"الموظفون", tabAudit:"سجل التغييرات", total:"إجمالي الموظفين", active:"نشط", inactive:"غير نشط", withPhoto:"لديهم صورة",
   byDept:"حسب القسم", recent:"آخر التعديلات", noDept:"بدون قسم", search:"بحث بالرقم أو الاسم أو القسم أو المسمى", all:"الكل", add:"إضافة موظف",
   id:"الرقم الوظيفي", nameAr:"الاسم بالعربي", nameEn:"الاسم بالإنجليزي", titleAr:"المسمى بالعربي", titleEn:"المسمى بالإنجليزي", dept:"القسم (رمز)", deptAr:"القسم بالعربي", deptEn:"القسم بالإنجليزي",
@@ -24,7 +24,7 @@ const I = {
  },
  en: {
  tabUsers:"Users", tabPlatform:"Platform", noCompany:"This account is not linked to any company", company:"Company", uEmail:"Email", uName:"Name", uPass:"Password (min 12 characters)", uRole:"Role", uActive:"Active", uAdd:"Add user", uSave:"Save", uReset:"Change password", uNewPass:"New password", uDone:"Saved", roleAdmin:"Admin", roleEditor:"Editor", roleViewer:"Viewer", uOff:"Disabled", uSuper:"Platform admin", coList:"Companies", coAdd:"Add company", coSlug:"Slug", coPrefix:"ID prefix (3 letters)", coNameAr:"Arabic name", coNameEn:"English name", coBase:"Card base URL", coOrigins:"Allowed origins (CORS)", plUsers:"All users", plAudit:"Platform audit", memberships:"Companies", coNone:"None", 
-  twoFa:"Two-factor", code:"Authenticator code (6 digits)", codeNeeded:"Enter the code from your authenticator app", twoFaOn:"Two-factor sign-in is on for your account.", twoFaOff:"Two-factor sign-in is off. Turn it on to protect your account.", twoFaStart:"Start setup", twoFaSecret:"Add this key to your authenticator app (or scan the code), then enter the code it shows.", twoFaEnable:"Turn on", twoFaDisable:"Turn off", twoFaEnabled:"Two-factor sign-in is on", twoFaDisabled:"Two-factor sign-in is off", title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", signOut:"Sign out",
+  twoFa:"Two-factor", code:"Authenticator code (6 digits)", codeNeeded:"Enter the code from your authenticator app", twoFaOn:"Two-factor sign-in is on for your account.", twoFaOff:"Two-factor sign-in is off. Turn it on to protect your account.", twoFaStart:"Start setup", twoFaSecret:"Add this key to your authenticator app (or scan the code), then enter the code it shows.", twoFaEnable:"Turn on", twoFaDisable:"Turn off", twoFaEnabled:"Two-factor sign-in is on", twoFaDisabled:"Two-factor sign-in is off", title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", remember:"Remember this device", signOut:"Sign out",
   tabDash:"Overview", mtTitle:"Pause site", mtOnDesc:"The site is paused: visitors see a \"temporarily unavailable\" message instead of cards. The admin panel still works.", mtOffDesc:"The site is live. Pausing shows visitors a \"temporarily unavailable\" message instead of cards; the admin panel keeps working.", mtDisable:"Pause site", mtEnable:"Resume site", mtConfDis:"Hide all cards from visitors?", mtConfEn:"Resume the site and show cards again?", mtDoneOn:"Site paused", mtDoneOff:"Site resumed", mtBadge:"Paused", mtBadgeOk:"Live", tabEmps:"Employees", tabAudit:"Audit log", total:"Total employees", active:"Active", inactive:"Inactive", withPhoto:"With photo",
   byDept:"By department", recent:"Recent changes", noDept:"No department", search:"Search by ID, name, department or job title", all:"All", add:"Add employee",
   id:"Employee ID", nameAr:"Arabic name", nameEn:"English name", titleAr:"Arabic job title", titleEn:"English job title", dept:"Department (code)", deptAr:"Arabic department", deptEn:"English department",
@@ -41,7 +41,14 @@ const I = {
  }
 };
 let lang = localStorage.getItem(LANG_KEY) || "ar";
-let token = sessionStorage.getItem(TOKEN_KEY) || "";
+const REM_KEY = TOKEN_KEY + "_remember";
+function loadToken() {
+  const tk = sessionStorage.getItem(TOKEN_KEY); if (tk) return tk;
+  try { const r = JSON.parse(localStorage.getItem(REM_KEY) || "null"); if (r && r.token && r.exp > Date.now()) return r.token; } catch { /* ignore */ }
+  try { localStorage.removeItem(REM_KEY); } catch { /* ignore */ }
+  return "";
+}
+let token = loadToken();
 let me = null;
 const t = (k) => I[lang][k] || k;
 const $ = (s, r = document) => r.querySelector(s);
@@ -96,7 +103,7 @@ async function api(method, path, body, opts = {}) {
 
 // ---------- auth ----------
 function signedOut(msg) {
-  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(CUR_KEY); cur = null;
+  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY); try { localStorage.removeItem(REM_KEY); } catch { /* ignore */ } sessionStorage.removeItem(CUR_KEY); cur = null;
   $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden");
   const e = $("#loginErr"); if (msg) { e.textContent = msg; e.classList.remove("hidden"); } else e.classList.add("hidden");
 }
@@ -107,7 +114,8 @@ $("#loginForm").addEventListener("submit", async (ev) => {
     const body = { email: $("#lemail").value, password: $("#lpass").value };
     if (!$("#lcodeRow").classList.contains("hidden")) body.totp = $("#lcode").value;
     const r = await api("POST", "/api/auth/login", body);
-    token = r.token; sessionStorage.setItem(TOKEN_KEY, token); $("#lpass").value = ""; $("#lcode").value = ""; $("#lcodeRow").classList.add("hidden");
+    token = r.token; sessionStorage.setItem(TOKEN_KEY, token);
+    try { if ($("#lremember").checked) localStorage.setItem(REM_KEY, JSON.stringify({ token, exp: Date.parse(r.expires_at) || 0 })); else localStorage.removeItem(REM_KEY); } catch { /* ignore */ } $("#lpass").value = ""; $("#lcode").value = ""; $("#lcodeRow").classList.add("hidden");
     await enter();
   } catch (e) {
     if (e.code === "totp_required") { signedOut(t("codeNeeded")); $("#lcodeRow").classList.remove("hidden"); $("#lcode").focus(); }
