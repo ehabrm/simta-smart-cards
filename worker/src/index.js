@@ -243,7 +243,16 @@ async function createUser(env, { email, name, role, password, onlyIfEmpty }) {
     throw e;
   }
 }
-function attemptStmt(env, k) { return env.DB.prepare("INSERT INTO login_attempts (key,ts) VALUES (?,?)").bind(k, Date.now()); }
+// Reserve one login attempt for the account+IP key and the IP key in ONE statement: the limit check and the insert cannot be split by a
+// concurrent request, so a burst cannot get past 5 per account+IP or 30 per IP. A reserved attempt stays counted (failure, missing 2FA code,
+// replay) and is removed again only when the sign-in fully succeeds. Returns the reservation timestamp.
+async function reserveAttempt(env, key, ipKey, since) {
+  const ts = Date.now();
+  const r = await env.DB.prepare("INSERT INTO login_attempts (key,ts) SELECT k,? FROM (SELECT ? AS k UNION ALL SELECT ?) WHERE (SELECT COUNT(*) FROM login_attempts WHERE key=? AND ts>?)<5 AND (SELECT COUNT(*) FROM login_attempts WHERE key=? AND ts>?)<30")
+    .bind(ts, key, ipKey, key, since, ipKey, since).run();
+  if (!r.meta || r.meta.changes < 2) throw new HttpError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.");
+  return ts;
+}
 async function login(request, env) {
   const body = await readJson(request);
   const email = String(body.email || "").trim().toLowerCase();
@@ -252,9 +261,7 @@ async function login(request, env) {
   const key = `${email.slice(0, 254)}|${ip}`;
   const ipKey = `ip|${ip}`; // per-IP cap too, so rotating e-mail names cannot bypass the limit or flood the audit log
   const since = Date.now() - 15 * 60 * 1000;
-  const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key=? AND ts>?").bind(key, since).first();
-  const ci = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE key=? AND ts>?").bind(ipKey, since).first();
-  if (c.n >= 5 || ci.n >= 30) throw new HttpError(429, "too_many_attempts", "Too many failed attempts. Try again in 15 minutes.");
+  const resTs = await reserveAttempt(env, key, ipKey, since);
   const u = await env.DB.prepare("SELECT * FROM users WHERE email=?").bind(email).first();
   // Always run the hash so response time does not reveal whether the user exists.
   const salt = u ? u.salt : "00".repeat(16);
@@ -263,7 +270,7 @@ async function login(request, env) {
   if (u && u.active && timingSafeEqual(h, u.pass_hash) && u.totp_enabled) {
     if (!body.totp) {
       // Correct password but no code yet: count it against the account and IP limits and audit it (no password, code or secret is stored).
-      await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey), auditStmt(env, { id: u.id, email: u.email }, request, "login_totp_required", "user", String(u.id), null));
+      await audit(env, { id: u.id, email: u.email }, request, "login_totp_required", "user", String(u.id), null);
       await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
       throw new HttpError(401, "totp_required", "Enter the 6-digit code from your authenticator app");
     }
@@ -271,8 +278,7 @@ async function login(request, env) {
     totpBad = !totpStep;
   }
   if (!u || !u.active || !timingSafeEqual(h, u.pass_hash) || totpBad) {
-    await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey),
-      auditStmt(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null)); // never store text that may be a mistyped password
+    await audit(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", totpBad ? { reason: "bad_code" } : null); // never store text that may be a mistyped password
     await env.DB.prepare("DELETE FROM login_attempts WHERE ts<?").bind(since).run(); // keep the table small
     throw new HttpError(401, "invalid_credentials", "Invalid email or password");
   }
@@ -280,11 +286,12 @@ async function login(request, env) {
     // Atomic replay guard: only one concurrent login can advance totp_last_step past this code's step.
     const adv = await env.DB.prepare("UPDATE users SET totp_last_step=? WHERE id=? AND totp_last_step<?").bind(totpStep, u.id, totpStep).run();
     if (!adv.meta || adv.meta.changes !== 1) {
-      await commit(env, attemptStmt(env, key), attemptStmt(env, ipKey), auditStmt(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", { reason: "code_replay" }));
+      await audit(env, null, request, "login_failed", "user", EMAIL_RE.test(email) ? email.slice(0, 100) : "(not an e-mail)", { reason: "code_replay" });
       throw new HttpError(401, "invalid_credentials", "Invalid email or password");
     }
   }
   await env.DB.prepare("DELETE FROM login_attempts WHERE key=?").bind(key).run(); // fully authenticated: reset this account+IP counter
+  await env.DB.prepare("DELETE FROM login_attempts WHERE key=? AND ts=?").bind(ipKey, resTs).run(); // and give back this sign-in's slot in the IP counter
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(nowIso()).run();
   const token = randomHex(32);
   const expires = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
