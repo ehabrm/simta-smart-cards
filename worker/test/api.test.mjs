@@ -103,7 +103,7 @@ r = await call("POST", "/api/admin/employees", { token: editor, body: emp("SMT-0
 // deactivate
 r = await call("POST", "/api/admin/employees/SMT-001/deactivate", { token: editor }); t("deactivate", r.status === 200 && r.j.employee.active === false);
 t("record kept after deactivate", !!env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-001'").get());
-r = await call("GET", "/api/employees/SMT-001"); t("deactivated hidden from public get (404)", r.status === 404);
+r = await call("GET", "/api/employees/SMT-001"); t("deactivated card -> 503 maintenance code (not 404)", r.status === 503 && r.j.code === "card_maintenance");
 // permanent delete: admin only + typed-ID confirmation + audit
 r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-777") }); t("create SMT-777 for delete test", r.status === 201, r.status);
 r = await call("DELETE", "/api/admin/employees/SMT-777", { token: editor, body: { confirm: "SMT-777" } }); t("delete: editor forbidden", r.status === 403, r.status);

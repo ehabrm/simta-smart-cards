@@ -47,6 +47,8 @@ t("share fallback copies link", (await p.evaluate(() => navigator.clipboard.read
 for (const [q, name] of [["SMT-003", "deactivated"], ["SMT-404", "unknown"], ["bad", "invalid"]]) {
   await p.goto(B + "/card.html" + (q ? "?id=" + q : "")); await p.waitForSelector(".v1 #nfTitle:not(:empty)");
   t(`${name} id -> not found, no data shown`, (await p.isVisible(".v1 #notfound")) && !(await p.isVisible(".v1 #content")) && !(await p.content()).includes("Dina Mock"));
+  const ttl = (await p.textContent(".v1 #nfTitle")).trim();
+  t(`${name} id -> distinct message (${ttl})`, name === "deactivated" ? ttl === "هذه البطاقة تحت الصيانة" : ttl === "البطاقة غير موجودة");
 }
 // bare card.html (no id) opens the default card SMT-001 (production behaviour, main 9afe6f6)
 await p.goto(B + "/card.html"); await p.waitForSelector(".v1 #name:not(:empty)");
@@ -163,7 +165,7 @@ await p.click(".sheet .foot .btn");
 // deactivate
 await p.click("tr[data-id=SMT-009] [data-act=deactivate]"); await p.waitForSelector("tr[data-id=SMT-009] .badge.off");
 t("deactivated in admin", true);
-const pub = await p.evaluate(async () => (await fetch("/api/employees/SMT-009")).status); t("deactivated -> public 404", pub === 404);
+const pub = await p.evaluate(async () => (await fetch("/api/employees/SMT-009")).status); t("deactivated -> public 503 card_maintenance", pub === 503);
 await search(""); await p.selectOption("#stat", "inactive"); await p.waitForTimeout(500); t("inactive filter", (await p.locator("tbody tr[data-id]").count()) === 2);
 await p.click("tr[data-id=SMT-009] [data-act=reactivate]"); await p.waitForTimeout(600);
 // audit

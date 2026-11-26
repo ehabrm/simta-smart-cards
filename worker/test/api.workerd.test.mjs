@@ -89,7 +89,7 @@ r = await call("POST", "/api/admin/employees", { token: editor, body: emp("SMT-0
 // deactivate
 r = await call("POST", "/api/admin/employees/SMT-001/deactivate", { token: editor }); t("deactivate", r.status === 200 && r.j.employee.active === false);
 t("record kept after deactivate", (await q("SELECT 1 FROM employees WHERE id='SMT-001'")).length === 1);
-r = await call("GET", "/api/employees/SMT-001"); t("deactivated hidden from public get (404)", r.status === 404);
+r = await call("GET", "/api/employees/SMT-001"); t("deactivated card -> 503 maintenance code (not 404)", r.status === 503 && r.j.code === "card_maintenance");
 r = await call("GET", "/api/employees", { token: admin }); t("directory list (with session) hides deactivated", Array.isArray(r.j) && !r.j.some((e) => e.id === "SMT-001") && r.j.length >= 1);
 t("directory list has no internal fields", r.j.every((e) => !("extra" in e) && !("department" in e) && !("active" in e) && !("created_by" in e)));
 r = await call("GET", "/api/employees", { token: "b".repeat(64) }); t("directory list with forged token -> 401", r.status === 401);
