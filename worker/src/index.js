@@ -444,6 +444,43 @@ async function visitStats(env, co) {
   } catch { return null; }
 }
 
+// ---------- QR ----------
+// The QR text is the employee's PERMANENT published card URL (+ &src=qr so a scan can be told from an ordinary visit). It is stored once per employee
+// (employee_qr) the first time it is needed (employee creation) and never recomputed, so it cannot drift if settings change later.
+// Base = company_settings 'public_card_base_url' (the published site) when set, else the company's card_base_url.
+async function qrFor(env, co, id) {
+  try {
+    const r = await env.DB.prepare("SELECT qr_url FROM employee_qr WHERE company_id=? AND employee_id=?").bind(co.id, id).first();
+    if (r) return r.qr_url;
+    let base = "";
+    const st = await env.DB.prepare("SELECT value FROM company_settings WHERE company_id=? AND key='public_card_base_url'").bind(co.id).first();
+    if (st && st.value) base = String(st.value);
+    else { const u = cardUrlFor(co, env, "X"); base = u ? u.slice(0, -"?id=X".length) : ""; }
+    if (!base) return null;
+    const url = `${base}?id=${id}&src=qr`;
+    await env.DB.prepare("INSERT OR IGNORE INTO employee_qr (company_id,employee_id,qr_url,created_at) VALUES (?,?,?,?)").bind(co.id, id, url, nowIso()).run();
+    return (await env.DB.prepare("SELECT qr_url FROM employee_qr WHERE company_id=? AND employee_id=?").bind(co.id, id).first()).qr_url;
+  } catch { return null; }
+}
+// A scan = the card page reported qr=1 (it does so once per browser, employee and day), so repeated opens do not inflate the count. Counters only.
+async function noteScan(env, request, url, id, co) {
+  try {
+    if (url.searchParams.get("qr") !== "1" || url.searchParams.get("preview") === "1" || BOT_RE.test(request.headers.get("User-Agent") || "")) return;
+    await env.DB.prepare("INSERT INTO qr_scans (day,employee_id,company_id,scans) VALUES (?,?,?,1) ON CONFLICT(day,employee_id) DO UPDATE SET scans=scans+1").bind(nowIso().slice(0, 10), id, co.id).run();
+  } catch { /* analytics must never affect cards */ }
+}
+async function qrStats(env, cos) {
+  const ids = cos.map((c) => c.id), ph = ids.map(() => "?").join(","), day = nowIso().slice(0, 10);
+  const d7 = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const tot = await env.DB.prepare(`SELECT COALESCE(SUM(scans),0) AS total, COALESCE(SUM(CASE WHEN day=? THEN scans ELSE 0 END),0) AS today, COALESCE(SUM(CASE WHEN day>=? THEN scans ELSE 0 END),0) AS last7 FROM qr_scans WHERE company_id IN (${ph})`).bind(day, d7, ...ids).first();
+  const { results: by } = await env.DB.prepare(`SELECT company_id, SUM(scans) AS total, SUM(CASE WHEN day=? THEN scans ELSE 0 END) AS today FROM qr_scans WHERE company_id IN (${ph}) GROUP BY company_id`).bind(day, ...ids).all();
+  const { results: emps } = await env.DB.prepare(`SELECT q.employee_id AS id, q.company_id, SUM(q.scans) AS total, SUM(CASE WHEN q.day=? THEN q.scans ELSE 0 END) AS today, e.name_ar, e.name_en FROM qr_scans q LEFT JOIN employees e ON e.id=q.employee_id AND e.company_id=q.company_id WHERE q.company_id IN (${ph}) GROUP BY q.company_id, q.employee_id ORDER BY total DESC, q.employee_id LIMIT 100`).bind(day, ...ids).all();
+  const slug = (cid) => (cos.find((c) => c.id === cid) || {}).slug;
+  return { total: tot.total, today: tot.today, last7: tot.last7,
+    by_company: cos.map((c) => { const r = by.find((x) => x.company_id === c.id); return { slug: c.slug, name_ar: c.name_ar, name_en: c.name_en, total: r ? r.total : 0, today: r ? r.today : 0 }; }),
+    employees: emps.map((r) => ({ id: r.id, company: slug(r.company_id), name_ar: r.name_ar, name_en: r.name_en, total: r.total, today: r.today })),
+    note: "One scan is counted per browser, employee and day. No personal data is stored. Day is UTC." };
+}
 // ---------- routes ----------
 async function getEmployee(env, id, co) {
   return env.DB.prepare(`SELECT * FROM employees WHERE id=? AND company_id=?`).bind(id, co.id).first();
@@ -522,6 +559,7 @@ async function route(request, env) {
     // A card switched off in admin is "under maintenance" for that card only: own code, so the card page shows a card-specific message (the company-wide one stays "maintenance"). Not counted as a view.
     if (!r.active) throw new HttpError(503, "card_maintenance", "This card is temporarily unavailable", null, { "Retry-After": "300", "Cache-Control": "no-store" });
     await noteView(env, request, url, id, scope);
+    await noteScan(env, request, url, id, scope);
     return json(publicEmployee(r, env, scope), 200); // bare object
   }
   if ((m = path.match(/^\/api\/photos\/([^/]+)$/)) && method === "GET") {
@@ -695,6 +733,13 @@ async function route(request, env) {
       return json({ maintenance: b.enabled });
     }
 
+    if (path === "/api/admin/qr-stats" && method === "GET") {
+      const want = (url.searchParams.get("company") || "").toLowerCase();
+      let cos;
+      if (want === "all") { requireSuper(user); cos = (await companies(env)).filter((c) => c.active); }
+      else { const c = want ? all.find((x) => x.slug === want && x.active) : scope; if (!c) throw new HttpError(404, "not_found", "Company not found"); requireRole(user, c, "viewer"); cos = [c]; }
+      return json(await qrStats(env, cos), 200, { "Cache-Control": "no-store" });
+    }
     if (path === "/api/admin/stats" && method === "GET") {
       requireRole(user, scope, "viewer");
       const t = await env.DB.prepare("SELECT COUNT(*) AS total, SUM(active) AS active, SUM(CASE WHEN photo_version>0 THEN 1 ELSE 0 END) AS with_photo FROM employees WHERE company_id=?").bind(scope.id).first();
@@ -747,7 +792,8 @@ async function route(request, env) {
         if (/UNIQUE|PRIMARY/i.test(String(e.message))) throw new HttpError(409, "exists", "An employee with this ID already exists"); // ids are unique across companies; the message does not say which company holds it
         throw e;
       }
-      return json({ employee: adminEmployee(await getEmployee(env, id, scope), env, scope) }, 201);
+      const qrUrl = await qrFor(env, scope, id); // the QR is made automatically when the employee is saved
+      return json({ employee: { ...adminEmployee(await getEmployee(env, id, scope), env, scope), qr_url: qrUrl } }, 201);
     }
     if ((m = path.match(/^\/api\/admin\/employees\/([^/]+)(\/(deactivate|reactivate|photo))?$/))) {
       requireRole(user, scope, "viewer");
@@ -757,14 +803,14 @@ async function route(request, env) {
       const cur = await getEmployee(env, id, scope);
       if (!cur) throw new HttpError(404, "not_found", "Employee not found");
 
-      if (!sub && method === "GET") return json({ employee: adminEmployee(cur, env, scope) });
+      if (!sub && method === "GET") return json({ employee: { ...adminEmployee(cur, env, scope), qr_url: await qrFor(env, scope, id) } });
       if (!sub && method === "DELETE") {
         // Permanent delete: admin only, and the caller must send the employee ID again as {"confirm": "SMT-001"}.
         requireRole(user, scope, "admin");
         let body = null; try { body = await request.json(); } catch { body = null; }
         if (!body || normalizeId(String(body.confirm || "")) !== id) throw new HttpError(422, "confirmation_required", "Type the employee ID to confirm deletion", { confirm: "must equal the employee ID" });
         await commit(env, env.DB.prepare("DELETE FROM employee_photos WHERE employee_id=?").bind(id),
-          env.DB.prepare("DELETE FROM employees WHERE id=? AND company_id=?").bind(id, scope.id),
+          env.DB.prepare("DELETE FROM employees WHERE id=? AND company_id=?").bind(id, scope.id), env.DB.prepare("DELETE FROM employee_qr WHERE employee_id=? AND company_id=?").bind(id, scope.id),
           auditStmt(env, user, request, "delete", "employee", id, { name_en: cur.name_en }, scope.id));
         return json({ deleted: true, id });
       }
