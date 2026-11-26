@@ -44,10 +44,13 @@ await p.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 await p.click(".v1 #share"); await p.waitForSelector("#toast.on");
 t("share fallback copies link", (await p.evaluate(() => navigator.clipboard.readText())).endsWith("/card.html?id=SMT-001"));
 // not found / deactivated / invalid / missing id
-for (const [q, name] of [["SMT-003", "deactivated"], ["SMT-404", "unknown"], ["bad", "invalid"], ["", "missing id"]]) {
+for (const [q, name] of [["SMT-003", "deactivated"], ["SMT-404", "unknown"], ["bad", "invalid"]]) {
   await p.goto(B + "/card.html" + (q ? "?id=" + q : "")); await p.waitForSelector(".v1 #nfTitle:not(:empty)");
   t(`${name} id -> not found, no data shown`, (await p.isVisible(".v1 #notfound")) && !(await p.isVisible(".v1 #content")) && !(await p.content()).includes("Dina Mock"));
 }
+// bare card.html (no id) opens the default card SMT-001 (production behaviour, main 9afe6f6)
+await p.goto(B + "/card.html"); await p.waitForSelector(".v1 #name:not(:empty)");
+t("missing id -> default card SMT-001", (await p.textContent(".v1 #name")) === "سارة نموذج");
 await p.goto(B + "/card.html?id=SMT-404"); await p.screenshot({ path: S + "card-notfound-mobile.png" });
 // API down -> error state, no stale data
 await p.route("**/api/employees/**", (r) => r.abort());
@@ -76,7 +79,7 @@ await p.waitForSelector("#loginErr:not(.hidden)"); t("wrong password shows error
 t("token not in page source / storage before login", !(await p.evaluate(() => sessionStorage.getItem("simta_admin_token"))));
 await p.fill("#lpass", "local test password 1"); await p.click("#loginForm button");
 await p.waitForSelector("#appView:not(.hidden) .stat");
-t("dashboard stats", (await p.$$eval(".stat b", (n) => n.map((x) => x.textContent))).join() === "3,2,1,0", await p.$$eval(".stat b", (n) => n.map((x) => x.textContent)).then(String));
+t("dashboard stats", (await p.$$eval(".stat b", (n) => n.map((x) => x.textContent))).slice(0, 4).join() === "3,2,1,0", await p.$$eval(".stat b", (n) => n.map((x) => x.textContent)).then(String)); // first 4: total/active/inactive/with_photo; the rest are the visit stats blocks (main 552908e)
 await p.screenshot({ path: S + "admin-dashboard-desktop-ar.png" });
 // language switch
 await p.click("#appView .langbtn");

@@ -1,21 +1,22 @@
-# STAGING configuration (separate Worker + D1, not production).
-# Replace the placeholders with the real values from the Cloudflare dashboard
-# BEFORE deploying, and review with the owner first.
-name = "simta-cards-staging-v2"
+# PRODUCTION Worker (deployed as simta-cards-prod). The deployed copy is edited in the
+# Cloudflare dashboard; this file documents its settings. Staging was removed.
+name = "simta-cards-prod"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
 
 [vars]
-ENVIRONMENT = "staging"
-# Comma-separated list of exact origins allowed to call the API (no wildcard).
-ALLOWED_ORIGINS = "https://simta-admin-upgrade.simta-smart-cards.pages.dev"
-CARD_BASE_URL = "https://simta-admin-upgrade.simta-smart-cards.pages.dev/card.html"
+# Dashboard vars (Workers > simta-cards-prod > Settings > Variables):
+#   ALLOWED_ORIGINS = https://simta-smart-cards.pages.dev   (exact origin, no wildcard)
+#   CARD_BASE_URL   = https://simta-smart-cards.pages.dev/card.html
+#   ENVIRONMENT     = production
+ALLOWED_ORIGINS = "https://simta-smart-cards.pages.dev"
+CARD_BASE_URL = "https://simta-smart-cards.pages.dev/card.html"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "simta-cards-staging-db"
-database_id = "c8f066ad-d564-4562-8aa0-eebaccaff168"
+database_name = "simta-cards-prod-db"
+# database_id: copy from Cloudflare dashboard > D1 > simta-cards-prod-db
+database_id = "3bd40999-7838-4500-9df7-b9569a376e2f"
 migrations_dir = "migrations"
 
-# Secrets (never put in this file):
-#   wrangler secret put SETUP_TOKEN    # one-time token used to create the first admin
+# Secrets (never in this file): SETUP_TOKEN (only used once to create the first admin)

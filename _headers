@@ -1,4 +1,4 @@
-# Cloudflare Pages response headers. Scoped to the NEW pages only; legacy pages are untouched.
+# SIMTA response headers (primary site: simta-smart-cards.pages.dev).
 # frame-ancestors cannot be set by a <meta> CSP, so it lives here.
 /admin.html
   Content-Security-Policy: frame-ancestors 'none'
@@ -31,6 +31,13 @@
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=31536000
 /card
+  Content-Security-Policy: frame-ancestors 'self'
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000
+/
   Content-Security-Policy: frame-ancestors 'self'
   X-Frame-Options: SAMEORIGIN
   X-Content-Type-Options: nosniff

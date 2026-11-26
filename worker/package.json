@@ -7,5 +7,10 @@
     "test:workerd": "node test/api.workerd.test.mjs",
     "dev:local": "node --no-warnings test/dev-server.mjs"
   },
-  "devDependencies": { "miniflare": "^3.20241106.0" }
+  "devDependencies": {
+    "miniflare": "^3.20241106.0"
+  },
+  "dependencies": {
+    "playwright": "^1.65.1"
+  }
 }

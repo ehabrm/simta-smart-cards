@@ -78,6 +78,24 @@ r = await call("POST", "/api/admin/users", { token: admin, body: { email: "viewe
 r = await call("POST", "/api/admin/users", { token: admin, body: { email: "editor@example.com", role: "editor", password: "editor password 123" } }); t("create editor", r.status === 201);
 const viewer = (await call("POST", "/api/auth/login", { body: { email: "viewer@example.com", password: "viewer password 123" } })).j.token;
 const editor = (await call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: "editor password 123" } })).j.token;
+// maintenance switch
+r = await call("GET", "/api/status"); t("maintenance: status off by default", r.status === 200 && r.j.maintenance === false);
+r = await call("PUT", "/api/admin/maintenance", { body: { enabled: true } }); t("maintenance: unauth PUT -> 401", r.status === 401);
+r = await call("PUT", "/api/admin/maintenance", { token: editor, body: { enabled: true } }); t("maintenance: editor PUT -> 403", r.status === 403);
+r = await call("PUT", "/api/admin/maintenance", { token: viewer, body: { enabled: true } }); t("maintenance: viewer PUT -> 403", r.status === 403);
+r = await call("PUT", "/api/admin/maintenance", { token: admin, body: { enabled: "yes" } }); t("maintenance: bad body -> 422", r.status === 422);
+r = await call("GET", "/api/employees/SMT-001"); t("maintenance: card up before", r.status === 200);
+r = await call("PUT", "/api/admin/maintenance", { token: admin, body: { enabled: true } }); t("maintenance: admin enables", r.status === 200 && r.j.maintenance === true);
+r = await call("GET", "/api/employees/SMT-001"); t("maintenance: card 503 + code + no-store", r.status === 503 && r.j.code === "maintenance" && r.headers.get("cache-control") === "no-store");
+r = await call("GET", "/api/employees/SMT-404"); t("maintenance: unknown id also 503", r.status === 503);
+r = await call("GET", "/api/photos/SMT-001"); t("maintenance: photo 503", r.status === 503);
+r = await call("GET", "/api/status"); t("maintenance: status on", r.j.maintenance === true);
+r = await call("GET", "/api/admin/maintenance", { token: viewer }); t("maintenance: admin API still readable", r.status === 200 && r.j.maintenance === true);
+r = await call("GET", "/api/admin/employees", { token: admin }); t("maintenance: admin employees still works", r.status === 200);
+r = await call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "correct horse battery" } }); t("maintenance: login still works", r.status === 200);
+r = await call("PUT", "/api/admin/maintenance", { token: admin, body: { enabled: false } }); t("maintenance: admin disables", r.status === 200 && r.j.maintenance === false);
+r = await call("GET", "/api/employees/SMT-001"); t("maintenance: card back up", r.status === 200 && r.j.id === "SMT-001");
+t("maintenance: audited", env.DB._raw.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='maintenance'").get().n === 2);
 r = await call("GET", "/api/admin/employees", { token: viewer }); t("viewer can read", r.status === 200);
 for (const [m, p, b] of [["POST", "/api/admin/employees", emp("SMT-010")], ["PUT", "/api/admin/employees/SMT-001", { title_en: "x" }], ["POST", "/api/admin/employees/SMT-001/deactivate"], ["GET", "/api/admin/users"], ["GET", "/api/admin/audit"]]) { r = await call(m, p, { token: viewer, body: b }); t(`viewer forbidden ${m} ${p}`, r.status === 403, r.status); }
 r = await call("GET", "/api/admin/users", { token: editor }); t("editor cannot manage users", r.status === 403);
@@ -86,14 +104,46 @@ r = await call("POST", "/api/admin/employees", { token: editor, body: emp("SMT-0
 r = await call("POST", "/api/admin/employees/SMT-001/deactivate", { token: editor }); t("deactivate", r.status === 200 && r.j.employee.active === false);
 t("record kept after deactivate", !!env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-001'").get());
 r = await call("GET", "/api/employees/SMT-001"); t("deactivated hidden from public get (404)", r.status === 404);
+// permanent delete: admin only + typed-ID confirmation + audit
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-777") }); t("create SMT-777 for delete test", r.status === 201, r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: editor, body: { confirm: "SMT-777" } }); t("delete: editor forbidden", r.status === 403, r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: viewer, body: { confirm: "SMT-777" } }); t("delete: viewer forbidden", r.status === 403, r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: admin }); t("delete: no confirmation -> 422", r.status === 422 && r.j.code === "confirmation_required", r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: admin, body: { confirm: "SMT-001" } }); t("delete: wrong confirmation -> 422", r.status === 422, r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777"); t("delete: unauthenticated -> 401", r.status === 401, r.status);
+t("delete: record still there after refused attempts", !!env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-777'").get());
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: admin, body: { confirm: "smt-777" } }); t("delete: typed ID (case-insensitive) -> 200", r.status === 200 && r.j.deleted === true, r.status);
+t("delete: row and photo gone", !env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-777'").get() && !env.DB._raw.prepare("SELECT 1 FROM employee_photos WHERE employee_id='SMT-777'").get());
+r = await call("GET", "/api/employees/SMT-777"); t("delete: public get -> 404", r.status === 404, r.status);
+r = await call("DELETE", "/api/admin/employees/SMT-777", { token: admin, body: { confirm: "SMT-777" } }); t("delete: second delete -> 404", r.status === 404, r.status);
+t("delete: audit row written", !!env.DB._raw.prepare("SELECT 1 FROM audit_log WHERE action='delete' AND entity_id='SMT-777'").get());
+t("delete: other employees untouched", !!env.DB._raw.prepare("SELECT 1 FROM employees WHERE id='SMT-001'").get());
+// visit counters: views + approximate browsers, aggregate only, never breaks the card
+env.VIEWS_FLUSH_SECONDS = "0";
+r = await call("POST", "/api/admin/employees", { token: admin, body: emp("SMT-778") }); t("create SMT-778 for visit test", r.status === 201, r.status);
+const view = (path, ua) => worker.fetch(new Request("https://api.test" + path, { headers: { "User-Agent": ua || "Mozilla/5.0 (iPhone) Safari" } }), env);
+await view("/api/employees/SMT-778"); // flushes anything buffered by earlier tests
+r = await call("GET", "/api/admin/stats", { token: admin }); const base = { v: r.j.visits.views.today, b: r.j.visits.browsers_approx.today, c: (r.j.visits.top_30d.find((x) => x.id === "SMT-778") || { views: 0 }).views };
+let v = await view("/api/employees/SMT-778"); t("visit: card still 200", v.status === 200);
+v = await view("/api/employees/SMT-778?f=1"); t("visit: first-of-day open 200", v.status === 200);
+await view("/api/employees/SMT-778?preview=1"); await view("/api/employees/SMT-778", "Googlebot/2.1"); await view("/api/employees/SMT-998"); await view("/api/employees/SMT-001");
+r = await call("GET", "/api/admin/stats", { token: admin });
+t("visit: views counted (2; preview, bot, missing and inactive excluded)", r.j.visits && r.j.visits.views.today - base.v === 2, JSON.stringify(r.j.visits && r.j.visits.views));
+t("visit: approx browsers today +1 (self-reported first-of-day flag)", r.j.visits.browsers_approx.today - base.b === 1);
+t("visit: top card listed", (r.j.visits.top_30d.find((x) => x.id === "SMT-778") || { views: 0 }).views - base.c === 2);
+t("visit: no visitor identifiers stored", JSON.stringify(env.DB._raw.prepare("PRAGMA table_info(card_views)").all().map((c) => c.name)) === '["day","employee_id","views","browsers"]');
+{ const bad = { ...env, DB: { ...env.DB, batch: async () => { throw new Error("db down"); } } }; const rr = await worker.fetch(new Request("https://api.test/api/employees/SMT-778", { headers: { "User-Agent": "Mozilla/5.0" } }), bad); t("visit: counting failure never breaks the card", rr.status === 200, rr.status); }
+env.VIEWS_FLUSH_SECONDS = "3600"; await view("/api/employees/SMT-778"); await view("/api/employees/SMT-778");
+r = await call("GET", "/api/admin/stats", { token: admin }); t("visit: batching limits writes (no new flush within the interval)", r.j.visits.views.today - base.v === 2, r.j.visits.views.today);
+env.VIEWS_FLUSH_SECONDS = "0";
 r = await call("GET", "/api/employees", { token: admin }); t("directory list (with session) hides deactivated", Array.isArray(r.j) && !r.j.some((e) => e.id === "SMT-001") && r.j.length >= 1);
 t("directory list has no internal fields", r.j.every((e) => !("extra" in e) && !("department" in e) && !("active" in e) && !("created_by" in e)));
 r = await call("GET", "/api/employees", { token: "b".repeat(64) }); t("directory list with forged token -> 401", r.status === 401);
 r = await call("GET", "/api/photos/SMT-001"); t("deactivated photo hidden", r.status === 404);
 r = await call("GET", "/api/admin/employees?status=inactive", { token: admin }); t("admin sees inactive", r.j.total === 1);
-r = await call("DELETE", "/api/admin/employees/SMT-001", { token: admin }); t("no hard delete endpoint", r.status === 405);
+r = await call("DELETE", "/api/admin/employees/SMT-001", { token: admin }); t("delete without typed confirmation is refused (422)", r.status === 422);
 r = await call("POST", "/api/admin/employees/SMT-001/reactivate", { token: editor }); t("reactivate", r.j.employee.active === true);
-r = await call("GET", "/api/admin/stats", { token: admin }); t("stats", r.j.total === 4 && r.j.active === 4, JSON.stringify(r.j));
+r = await call("GET", "/api/admin/stats", { token: admin }); t("stats", r.j.total === 5 && r.j.active === 5, JSON.stringify(r.j));
 // audit
 r = await call("GET", "/api/admin/audit?limit=200", { token: admin }); const acts = r.j.entries.map((e) => e.action);
 t("audit has create/update/deactivate/photo/login_failed", ["create", "update", "deactivate", "reactivate", "photo_set", "login_failed", "login"].every((a) => acts.includes(a)), acts.join());
