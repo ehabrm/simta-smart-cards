@@ -1,0 +1,69 @@
+PASS card AR name
+PASS card AR dir rtl
+PASS card role AR
+PASS card dept row AR
+PASS card tel link
+PASS card wa link
+PASS card has CSP meta
+PASS CSP blocks injected inline script
+PASS empty email row hidden
+PASS no QR element on card
+PASS card EN dir ltr
+PASS card EN dept
+PASS vCard download
+PASS vCard has no email line when none
+PASS share fallback copies link
+PASS deactivated id -> not found, no data shown
+PASS unknown id -> not found, no data shown
+PASS invalid id -> not found, no data shown
+PASS missing id id -> not found, no data shown
+PASS API unreachable -> error state (no fake data)
+PASS API 500 -> error state
+PASS desktop card shows v2 layout + email
+PASS desktop EN ltr
+PASS login screen first (RTL default)
+PASS wrong password shows error
+PASS token not in page source / storage before login
+PASS dashboard stats
+PASS admin EN is LTR
+PASS list 3 employees (incl inactive)
+PASS search by ID
+PASS search by English name
+PASS search by Arabic name
+PASS search by department
+PASS search by job title
+PASS search no match -> empty state
+PASS sort by name (EN) ascending
+PASS sort direction toggle -> descending
+PASS sort by ID descending
+PASS sort by department works
+PASS create validation shows field errors
+PASS created employee found
+PASS photo uploaded + shown
+PASS photo renders (512px)
+PASS duplicate ID error
+PASS ID locked on edit
+PASS edit saved + searchable
+PASS card URL
+PASS preview iframe renders card
+PASS QR downloads
+PASS copy URL
+PASS deactivated in admin
+PASS deactivated -> public 404
+PASS inactive filter
+PASS audit log visible to admin
+PASS logout clears token
+PASS no secrets in served HTML/JS
+PASS mobile dashboard no horizontal overflow
+PASS mobile employees no horizontal overflow
+PASS mobile form no overflow
+PASS tablet dashboard no horizontal overflow
+PASS tablet employees no horizontal overflow
+PASS card.html: no broken local assets
+PASS admin.html: no broken local assets
+PASS no third-party scripts/styles
+PASS no external network requests (only localhost)
+PASS no CSP violations raised by the pages (excluding the deliberate injection probe)
+PASS no JavaScript errors across run
+
+67 passed, 0 failed
