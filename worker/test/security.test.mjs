@@ -131,6 +131,23 @@ r = await call("POST", "/api/auth/2fa/enable", { token: admin2, body: { code: "0
 const c1 = await totpCode(sec);
 r = await call("POST", "/api/auth/2fa/enable", { token: admin2, body: { code: c1 } }); t("enable with the right code", r.status === 200);
 r = await login("admin@example.com", {}, ip5()); t("login without a code -> 401 totp_required (no session issued)", r.status === 401 && r.j.code === "totp_required" && !r.j.token);
+{ // totp_required must be counted (account + IP) and audited, with nothing sensitive stored
+  const ip = ip5(); const key = `admin@example.com|${ip}`;
+  await rawx("DELETE FROM login_attempts");
+  const a0 = (await rawq("SELECT COUNT(*) AS n FROM audit_log WHERE action='login_totp_required'"))[0].n;
+  r = await login("admin@example.com", {}, ip); t("totp_required keeps its code and message", r.status === 401 && r.j.code === "totp_required" && /6-digit/.test(r.j.error));
+  const ka = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='${key}'`))[0].n, ki = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='ip|${ip}'`))[0].n;
+  t("totp_required is counted against the account and the IP", ka === 1 && ki === 1, `${ka},${ki}`);
+  const a1 = await rawq("SELECT user_email,entity_id,changes,ip FROM audit_log WHERE action='login_totp_required'");
+  t("totp_required is written to the audit log once", a1.length === a0 + 1);
+  t("that audit row holds no password, code or secret", !JSON.stringify(a1).includes(PW) && !JSON.stringify(a1).includes(sec) && a1[a1.length - 1].changes === null);
+  const x = []; for (let i = 0; i < 6; i++) x.push((await login("admin@example.com", {}, ip)).status);
+  t("repeated password-only attempts hit the 5-attempt lockout (429)", x.slice(0, 4).every((s) => s === 401) && x[4] === 429 && x[5] === 429, x.join());
+  r = await login("admin@example.com", { totp: await totpCode(sec, Date.now() + 120000) }, ip5()); t("lockout on one IP does not block a different IP", r.status === 401 && r.j.code === "invalid_credentials");
+  await rawx("DELETE FROM login_attempts");
+}
+// a wrong-password attempt must not reveal totp_required
+r = await call("POST", "/api/auth/login", { body: { email: "admin@example.com", password: "wrong password!!" }, ip: ip5() }); t("wrong password with 2FA enabled -> invalid_credentials, never totp_required", r.status === 401 && r.j.code === "invalid_credentials");
 r = await login("admin@example.com", { totp: "123456" }, ip5()); t("login with a wrong code -> 401", r.status === 401 && r.j.code === "invalid_credentials");
 r = await login("admin@example.com", { totp: c1 }, ip5()); t("a code already used to enable 2FA cannot be reused to sign in", r.status === 401);
 // time-shifted valid code: next step
