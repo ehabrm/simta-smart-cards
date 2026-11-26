@@ -11,15 +11,15 @@ const I = {
   byDept:"حسب القسم", recent:"آخر التعديلات", noDept:"بدون قسم", search:"بحث بالرقم أو الاسم أو القسم أو المسمى", all:"الكل", add:"إضافة موظف",
   id:"الرقم الوظيفي", nameAr:"الاسم بالعربي", nameEn:"الاسم بالإنجليزي", titleAr:"المسمى بالعربي", titleEn:"المسمى بالإنجليزي", dept:"القسم (رمز)", deptAr:"القسم بالعربي", deptEn:"القسم بالإنجليزي",
   phone:"الهاتف", whatsapp:"واتساب", mail:"البريد الإلكتروني", locAr:"الموقع بالعربي", locEn:"الموقع بالإنجليزي", photo:"الصورة", choosePhoto:"اختيار صورة", removePhoto:"حذف الصورة",
-  save:"حفظ", cancel:"إلغاء", edit:"تعديل", preview:"البطاقة", deactivate:"إيقاف", reactivate:"تفعيل", status:"الحالة", employee:"الموظف", contact:"التواصل", actions:"إجراءات",
-  statusActive:"نشط", statusInactive:"موقوف", none:"لا يوجد موظفون مطابقون", count:"عدد", newEmp:"موظف جديد", editEmp:"تعديل الموظف", saved:"تم الحفظ", copied:"تم نسخ الرابط",
+  save:"حفظ", cancel:"إلغاء", edit:"تعديل", preview:"البطاقة", deactivate:"إيقاف للصيانة", reactivate:"تشغيل", status:"الحالة", employee:"الموظف", contact:"التواصل", actions:"إجراءات",
+  statusActive:"نشط", statusInactive:"تحت الصيانة", none:"لا يوجد موظفون مطابقون", count:"عدد", newEmp:"موظف جديد", editEmp:"تعديل الموظف", saved:"تم الحفظ", copied:"تم نسخ الرابط",
   del:"حذف نهائي", promptDelete:"حذف نهائي لا يمكن التراجع عنه. اكتب رقم الموظف للتأكيد:", deleteDone:"تم حذف الموظف", deleteMismatch:"الرقم غير مطابق، لم يتم الحذف",
   visits:"الزيارات", vToday:"اليوم", vYesterday:"أمس", v7:"آخر 7 أيام", v30:"آخر 30 يومًا", vTotal:"من بداية العد", vBrowsers:"متصفحات مختلفة اليوم (تقريبي)", vTop:"أكثر البطاقات فتحًا (30 يومًا)", vNote:"الزيارة = فتح ناجح للكارت (يتكرر لو نفس الشخص فتحه أكتر من مرة). العدد يبدأ من تفعيل الميزة وقد يقل قليلًا عن الواقع. المتصفحات المختلفة ليست أشخاصًا.", vNone:"لا توجد بيانات بعد",
-  cardUrl:"رابط البطاقة", copy:"نسخ", qr:"رمز QR", downloadPng:"تحميل PNG", downloadSvg:"تحميل SVG", openCard:"فتح البطاقة", close:"إغلاق", confirmDeact:"إيقاف هذا الموظف؟ لن يظهر في البطاقة العامة، وتبقى بياناته محفوظة.",
-  confirmReact:"إعادة تفعيل هذا الموظف؟", deactDone:"تم الإيقاف", reactDone:"تمت إعادة التفعيل", idHint:"مثال: SMT-005", loading:"جارٍ التحميل…", netErr:"تعذّر الاتصال بالخدمة", sessionEnd:"انتهت الجلسة، سجّل الدخول مرة أخرى",
+  cardUrl:"رابط البطاقة", copy:"نسخ", qr:"رمز QR", downloadPng:"تحميل PNG", downloadSvg:"تحميل SVG", openCard:"فتح البطاقة", close:"إغلاق", confirmDeact:"إيقاف هذه البطاقة للصيانة؟ سيرى الزائر رسالة الصيانة، وتبقى بيانات الموظف محفوظة.",
+  confirmReact:"تشغيل هذه البطاقة وإظهارها للزوار؟", deactDone:"البطاقة الآن تحت الصيانة", reactDone:"تم تشغيل البطاقة", idHint:"مثال: SMT-005", loading:"جارٍ التحميل…", netErr:"تعذّر الاتصال بالخدمة", sessionEnd:"انتهت الجلسة، سجّل الدخول مرة أخرى",
   time:"الوقت", user:"المستخدم", action:"الإجراء", entity:"العنصر", details:"التفاصيل", prev:"السابق", next:"التالي", photoBad:"الملف ليس صورة صالحة", photoBig:"الصورة كبيرة جدًا", readOnly:"صلاحيتك للقراءة فقط", role:"الدور",
   sortBy:"ترتيب حسب", sortDir:"اتجاه الترتيب", sort_id:"الرقم الوظيفي", sort_name:"الاسم", sort_dept:"القسم", sort_title:"المسمى", sort_updated:"آخر تعديل",
-  cardPreviewNote:"المعاينة تعرض البطاقة العامة الحقيقية. الموظف الموقوف يظهر كغير موجود.", extra:"حقول إضافية (اختياري)", extraHint:"مفتاح=قيمة، سطر لكل حقل"
+  cardPreviewNote:"المعاينة تعرض البطاقة العامة الحقيقية. البطاقة تحت الصيانة تعرض رسالة الصيانة، والبطاقة المحذوفة تعرض رسالة «غير موجودة أو تم حذفها».", extra:"حقول إضافية (اختياري)", extraHint:"مفتاح=قيمة، سطر لكل حقل"
  },
  en: {
   twoFa:"Two-factor", code:"Authenticator code (6 digits)", codeNeeded:"Enter the code from your authenticator app", twoFaOn:"Two-factor sign-in is on for your account.", twoFaOff:"Two-factor sign-in is off. Turn it on to protect your account.", twoFaStart:"Start setup", twoFaSecret:"Add this key to your authenticator app (or scan the code), then enter the code it shows.", twoFaEnable:"Turn on", twoFaDisable:"Turn off", twoFaEnabled:"Two-factor sign-in is on", twoFaDisabled:"Two-factor sign-in is off", title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", signOut:"Sign out",
@@ -27,15 +27,15 @@ const I = {
   byDept:"By department", recent:"Recent changes", noDept:"No department", search:"Search by ID, name, department or job title", all:"All", add:"Add employee",
   id:"Employee ID", nameAr:"Arabic name", nameEn:"English name", titleAr:"Arabic job title", titleEn:"English job title", dept:"Department (code)", deptAr:"Arabic department", deptEn:"English department",
   phone:"Phone", whatsapp:"WhatsApp", mail:"Email", locAr:"Arabic location", locEn:"English location", photo:"Photo", choosePhoto:"Choose photo", removePhoto:"Remove photo",
-  save:"Save", cancel:"Cancel", edit:"Edit", preview:"Card", deactivate:"Deactivate", reactivate:"Reactivate", status:"Status", employee:"Employee", contact:"Contact", actions:"Actions",
-  statusActive:"Active", statusInactive:"Inactive", none:"No matching employees", count:"Count", newEmp:"New employee", editEmp:"Edit employee", saved:"Saved", copied:"Link copied",
+  save:"Save", cancel:"Cancel", edit:"Edit", preview:"Card", deactivate:"Set to maintenance", reactivate:"Activate", status:"Status", employee:"Employee", contact:"Contact", actions:"Actions",
+  statusActive:"Active", statusInactive:"Under maintenance", none:"No matching employees", count:"Count", newEmp:"New employee", editEmp:"Edit employee", saved:"Saved", copied:"Link copied",
   del:"Delete permanently", promptDelete:"Permanent delete, cannot be undone. Type the employee ID to confirm:", deleteDone:"Employee deleted", deleteMismatch:"ID does not match, nothing was deleted",
   visits:"Visits", vToday:"Today", vYesterday:"Yesterday", v7:"Last 7 days", v30:"Last 30 days", vTotal:"Since counting started", vBrowsers:"Different browsers today (approx.)", vTop:"Most opened cards (30 days)", vNote:"A visit is one successful card open (the same person opening it twice counts twice). Counting started when this feature went live and may slightly undercount. Different browsers are not people.", vNone:"No data yet",
-  cardUrl:"Card URL", copy:"Copy", qr:"QR code", downloadPng:"Download PNG", downloadSvg:"Download SVG", openCard:"Open card", close:"Close", confirmDeact:"Deactivate this employee? Their public card stops working, but their record is kept.",
-  confirmReact:"Reactivate this employee?", deactDone:"Deactivated", reactDone:"Reactivated", idHint:"e.g. SMT-005", loading:"Loading…", netErr:"Could not reach the service", sessionEnd:"Session ended, please sign in again",
+  cardUrl:"Card URL", copy:"Copy", qr:"QR code", downloadPng:"Download PNG", downloadSvg:"Download SVG", openCard:"Open card", close:"Close", confirmDeact:"Set this card to maintenance? Visitors will see the maintenance message; the employee record is kept.",
+  confirmReact:"Activate this card and show it to visitors?", deactDone:"Card is now under maintenance", reactDone:"Card activated", idHint:"e.g. SMT-005", loading:"Loading…", netErr:"Could not reach the service", sessionEnd:"Session ended, please sign in again",
   time:"Time", user:"User", action:"Action", entity:"Item", details:"Details", prev:"Previous", next:"Next", photoBad:"Not a valid image", photoBig:"Image too large", readOnly:"Your role is read-only", role:"Role",
   sortBy:"Sort by", sortDir:"Sort direction", sort_id:"Employee ID", sort_name:"Name", sort_dept:"Department", sort_title:"Job title", sort_updated:"Last updated",
-  cardPreviewNote:"The preview shows the real public card. A deactivated employee shows as not found.", extra:"Extra fields (optional)", extraHint:"key=value, one per line"
+  cardPreviewNote:"The preview shows the real public card. A card under maintenance shows the maintenance message; a deleted card shows 'does not exist or has been deleted'.", extra:"Extra fields (optional)", extraHint:"key=value, one per line"
  }
 };
 let lang = localStorage.getItem(LANG_KEY) || "ar";

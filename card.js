@@ -6,8 +6,8 @@ const params=new URLSearchParams(location.search);
 const id=(params.get("id")||window.SIMTA_DEFAULT_ID||"SMT-001").trim().toUpperCase();
 let rep=null,state="loading",english=(params.get("lang")==="en");
 const T={
- ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",share:"مشاركة البطاقة",phoneL:"الهاتف",emailL:"البريد الإلكتروني",deptL:"القسم",regionL:"الموقع",desc:"سيمتا شركة متخصصة في الخرسانة الجاهزة، هدفنا أن نكون شريكًا يُعتمد عليه في مشروعك، والجودة هي أساس ما نقدّمه. تواصل مع ممثلنا لمعرفة المزيد.",nfT:"البطاقة غير موجودة",nfB:"هذه البطاقة غير موجودة أو تم حذفها.",mtT:"الموقع تحت الصيانة",mtB:"الموقع تحت الصيانة حاليًا. نعمل على تحسين الخدمة، يُرجى المحاولة لاحقًا.",unT:"تعذّر تحميل البطاقة",unB:"لا يمكن الوصول إلى الخدمة الآن. حاول مرة أخرى بعد قليل.",loading:"جارٍ التحميل…",chip:"رقم الموظف",copied:"تم نسخ رابط البطاقة"},
- en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",share:"Share card",phoneL:"Phone",emailL:"Email",deptL:"Department",regionL:"Location",desc:"SIMTA is a ready-mix concrete company. We aim to be a partner you can rely on for your project, and quality is the foundation of what we offer. Contact our representative to learn more.",nfT:"Card not found",nfB:"This card does not exist or has been deleted.",mtT:"Site under maintenance",mtB:"The site is currently under maintenance. We are working to improve the service. Please try again later.",unT:"Could not load this card",unB:"The service is not reachable right now. Please try again in a moment.",loading:"Loading…",chip:"Employee ID",copied:"Card link copied"}
+ ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",share:"مشاركة البطاقة",phoneL:"الهاتف",emailL:"البريد الإلكتروني",deptL:"القسم",regionL:"الموقع",desc:"سيمتا شركة متخصصة في الخرسانة الجاهزة، هدفنا أن نكون شريكًا يُعتمد عليه في مشروعك، والجودة هي أساس ما نقدّمه. تواصل مع ممثلنا لمعرفة المزيد.",nfT:"البطاقة غير موجودة",nfB:"هذه البطاقة غير موجودة أو تم حذفها.",mtT:"الموقع تحت الصيانة",mtB:"الموقع تحت الصيانة حاليًا. نعمل على تحسين الخدمة، يُرجى المحاولة لاحقًا.",cmT:"هذه البطاقة تحت الصيانة",cmB:"هذه البطاقة متوقفة مؤقتًا للصيانة. يُرجى المحاولة لاحقًا.",unT:"تعذّر تحميل البطاقة",unB:"لا يمكن الوصول إلى الخدمة الآن. حاول مرة أخرى بعد قليل.",loading:"جارٍ التحميل…",chip:"رقم الموظف",copied:"تم نسخ رابط البطاقة"},
+ en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",share:"Share card",phoneL:"Phone",emailL:"Email",deptL:"Department",regionL:"Location",desc:"SIMTA is a ready-mix concrete company. We aim to be a partner you can rely on for your project, and quality is the foundation of what we offer. Contact our representative to learn more.",nfT:"Card not found",nfB:"This card does not exist or has been deleted.",mtT:"Site under maintenance",mtB:"The site is currently under maintenance. We are working to improve the service. Please try again later.",cmT:"This card is under maintenance",cmB:"This card is temporarily unavailable for maintenance. Please try again later.",unT:"Could not load this card",unB:"The service is not reachable right now. Please try again in a moment.",loading:"Loading…",chip:"Employee ID",copied:"Card link copied"}
 };
 const DEFAULT_AV='<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" fill="#e8dac5"/><circle cx="32" cy="25" r="11" fill="#9c7040"/><path d="M10 64c0-14 9-22 22-22s22 8 22 22z" fill="#9c7040"/></svg>';
 const digits=s=>String(s||"").replace(/[^\d]/g,"");
@@ -17,7 +17,7 @@ function renderOne(){
  const t=english?T.en:T.ar;
  const h=document.documentElement;h.lang=english?"en":"ar";h.dir=english?"ltr":"rtl";
  $("langBtn").textContent=t.btn;$("sideDesc").textContent=t.desc;$("companyDesc").textContent=t.desc;
- const msg=state==="notfound"?[t.nfT,t.nfB]:state==="maintenance"?[t.mtT,t.mtB]:state==="error"?[t.unT,t.unB]:null;
+ const msg=state==="notfound"?[t.nfT,t.nfB]:state==="maintenance"?[t.mtT,t.mtB]:state==="cardmaint"?[t.cmT,t.cmB]:state==="error"?[t.unT,t.unB]:null;
  $("hero").style.display=state==="ready"?"":"none";$("content").style.display=state==="ready"?"":"none";
  $("notfound").style.display=msg?"block":"none";
  if(msg){$("nfTitle").textContent=msg[0];$("nfBody").textContent=msg[1];return}
@@ -63,7 +63,7 @@ async function load(){
   const res=await fetch(API+"/api/employees/"+encodeURIComponent(id)+q,{cache:"no-store"});
   try{if(first&&res.ok)localStorage.setItem("simta_seen",day)}catch(e){}
   if(res.status===404||res.status===400){state="notfound"}
-  else if(res.status===503){let d=null;try{d=await res.json()}catch(e){}state=(d&&d.code==="maintenance")?"maintenance":"error"}
+  else if(res.status===503){let d=null;try{d=await res.json()}catch(e){}state=(d&&d.code==="maintenance")?"maintenance":(d&&d.code==="card_maintenance")?"cardmaint":"error"}
   else if(!res.ok){state="error"}
   else{rep=await res.json();state=(rep&&rep.id===id)?"ready":"error"}
  }catch(e){state="error"}
