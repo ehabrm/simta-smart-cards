@@ -6,6 +6,7 @@ const LANG_KEY = "simta_admin_lang";
 
 const I = {
  ar: {
+ tabUsers:"المستخدمون", tabPlatform:"المنصة", noCompany:"هذا الحساب غير مرتبط بأي شركة", company:"الشركة", uEmail:"البريد الإلكتروني", uName:"الاسم", uPass:"كلمة المرور (12 حرفًا على الأقل)", uRole:"الصلاحية", uActive:"نشط", uAdd:"إضافة مستخدم", uSave:"حفظ", uReset:"تغيير كلمة المرور", uNewPass:"كلمة المرور الجديدة", uDone:"تم الحفظ", roleAdmin:"مدير", roleEditor:"محرر", roleViewer:"مشاهد فقط", uOff:"موقوف", uSuper:"مدير المنصة", coList:"الشركات", coAdd:"إضافة شركة", coSlug:"المعرّف (slug)", coPrefix:"بادئة الرقم (3 أحرف)", coNameAr:"الاسم بالعربية", coNameEn:"الاسم بالإنجليزية", coBase:"رابط البطاقة", coOrigins:"المواقع المسموحة (CORS)", plUsers:"كل المستخدمين", plAudit:"سجل المنصة", memberships:"الشركات", coNone:"بدون", 
   twoFa:"التحقق بخطوتين", code:"رمز التحقق (6 أرقام)", codeNeeded:"أدخل الرمز من تطبيق المصادقة", twoFaOn:"التحقق بخطوتين مفعّل لحسابك.", twoFaOff:"التحقق بخطوتين غير مفعّل. فعّله لحماية حسابك.", twoFaStart:"بدء التفعيل", twoFaSecret:"أضف هذا المفتاح إلى تطبيق المصادقة (أو امسح الرمز)، ثم أدخل الرمز الظاهر.", twoFaEnable:"تفعيل", twoFaDisable:"إيقاف", twoFaEnabled:"تم تفعيل التحقق بخطوتين", twoFaDisabled:"تم إيقاف التحقق بخطوتين", title:"SIMTA | لوحة التحكم", loginTitle:"تسجيل دخول المسؤول", email:"البريد الإلكتروني", password:"كلمة المرور", signIn:"دخول", signOut:"خروج",
   tabDash:"نظرة عامة", mtTitle:"إيقاف الموقع مؤقتًا", mtOnDesc:"الموقع متوقف الآن: الزوار يرون رسالة \"متوقف مؤقتًا\" بدل البطاقات. لوحة الأدمن تعمل.", mtOffDesc:"الموقع يعمل. عند الإيقاف يرى الزوار رسالة \"متوقف مؤقتًا\" بدل البطاقات، وتبقى لوحة الأدمن تعمل.", mtDisable:"إيقاف الموقع", mtEnable:"إعادة تشغيل الموقع", mtConfDis:"إيقاف عرض كل البطاقات للزوار؟", mtConfEn:"إعادة تشغيل الموقع وعرض البطاقات؟", mtDoneOn:"تم إيقاف الموقع", mtDoneOff:"تم تشغيل الموقع", mtBadge:"متوقف", mtBadgeOk:"يعمل", tabEmps:"الموظفون", tabAudit:"سجل التغييرات", total:"إجمالي الموظفين", active:"نشط", inactive:"غير نشط", withPhoto:"لديهم صورة",
   byDept:"حسب القسم", recent:"آخر التعديلات", noDept:"بدون قسم", search:"بحث بالرقم أو الاسم أو القسم أو المسمى", all:"الكل", add:"إضافة موظف",
@@ -22,6 +23,7 @@ const I = {
   cardPreviewNote:"المعاينة تعرض البطاقة العامة الحقيقية. البطاقة تحت الصيانة تعرض رسالة الصيانة، والبطاقة المحذوفة تعرض رسالة «غير موجودة أو تم حذفها».", extra:"حقول إضافية (اختياري)", extraHint:"مفتاح=قيمة، سطر لكل حقل"
  },
  en: {
+ tabUsers:"Users", tabPlatform:"Platform", noCompany:"This account is not linked to any company", company:"Company", uEmail:"Email", uName:"Name", uPass:"Password (min 12 characters)", uRole:"Role", uActive:"Active", uAdd:"Add user", uSave:"Save", uReset:"Change password", uNewPass:"New password", uDone:"Saved", roleAdmin:"Admin", roleEditor:"Editor", roleViewer:"Viewer", uOff:"Disabled", uSuper:"Platform admin", coList:"Companies", coAdd:"Add company", coSlug:"Slug", coPrefix:"ID prefix (3 letters)", coNameAr:"Arabic name", coNameEn:"English name", coBase:"Card base URL", coOrigins:"Allowed origins (CORS)", plUsers:"All users", plAudit:"Platform audit", memberships:"Companies", coNone:"None", 
   twoFa:"Two-factor", code:"Authenticator code (6 digits)", codeNeeded:"Enter the code from your authenticator app", twoFaOn:"Two-factor sign-in is on for your account.", twoFaOff:"Two-factor sign-in is off. Turn it on to protect your account.", twoFaStart:"Start setup", twoFaSecret:"Add this key to your authenticator app (or scan the code), then enter the code it shows.", twoFaEnable:"Turn on", twoFaDisable:"Turn off", twoFaEnabled:"Two-factor sign-in is on", twoFaDisabled:"Two-factor sign-in is off", title:"SIMTA | Admin", loginTitle:"Admin sign in", email:"Email", password:"Password", signIn:"Sign in", signOut:"Sign out",
   tabDash:"Overview", mtTitle:"Pause site", mtOnDesc:"The site is paused: visitors see a \"temporarily unavailable\" message instead of cards. The admin panel still works.", mtOffDesc:"The site is live. Pausing shows visitors a \"temporarily unavailable\" message instead of cards; the admin panel keeps working.", mtDisable:"Pause site", mtEnable:"Resume site", mtConfDis:"Hide all cards from visitors?", mtConfEn:"Resume the site and show cards again?", mtDoneOn:"Site paused", mtDoneOff:"Site resumed", mtBadge:"Paused", mtBadgeOk:"Live", tabEmps:"Employees", tabAudit:"Audit log", total:"Total employees", active:"Active", inactive:"Inactive", withPhoto:"With photo",
   byDept:"By department", recent:"Recent changes", noDept:"No department", search:"Search by ID, name, department or job title", all:"All", add:"Add employee",
@@ -55,7 +57,7 @@ function el(tag, attrs = {}, ...kids) {
 }
 function toast(m) { const e = $("#toast"); e.textContent = m; e.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("on"), 2200); }
 function cardUrl(id) {
-  const base = CFG.CARD_BASE_URL || new URL("card.html", location.href).href;
+  const base = (cur && cur.slug !== "simta" && cur.card_base_url) ? cur.card_base_url : (CFG.CARD_BASE_URL || new URL("card.html", location.href).href);
   return base + "?id=" + encodeURIComponent(id);
 }
 function applyLang() {
@@ -63,11 +65,21 @@ function applyLang() {
   document.title = t("title");
   $$("[data-i]").forEach((n) => n.textContent = t(n.dataset.i));
   $$(".langbtn").forEach((b) => b.textContent = lang === "ar" ? "English" : "العربية");
-  if (me) { $("#who").textContent = `${me.email} · ${me.role}`; showTab(currentTab, true); }
+  if (me) { $("#who").textContent = `${me.email} · ${me.role}`; if (cur) setCompany(cur.slug, true); showTab(currentTab, true); }
 }
 $$(".langbtn").forEach((b) => b.addEventListener("click", () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem(LANG_KEY, lang); applyLang(); }));
 
+let cur = null; // active company {slug, prefix, role, card_base_url, ...}
+const CUR_KEY = "simta_admin_company";
+// Company-scoped routes: /api/admin/<x> becomes /api/c/<slug>/admin/<x> for every company except SIMTA (legacy routes). Platform routes are never rewritten.
+function scoped(path) {
+  if (!cur || cur.slug === "simta") return path;
+  if (path.startsWith("/api/admin/platform/") || path.startsWith("/api/admin/companies")) return path;
+  if (path.startsWith("/api/admin/")) return "/api/c/" + cur.slug + path.slice(4);
+  return path;
+}
 async function api(method, path, body, opts = {}) {
+  path = scoped(path);
   const headers = {};
   if (token) headers.Authorization = "Bearer " + token;
   let b;
@@ -84,7 +96,7 @@ async function api(method, path, body, opts = {}) {
 
 // ---------- auth ----------
 function signedOut(msg) {
-  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY);
+  token = ""; me = null; sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(CUR_KEY); cur = null;
   $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden");
   const e = $("#loginErr"); if (msg) { e.textContent = msg; e.classList.remove("hidden"); } else e.classList.add("hidden");
 }
@@ -129,17 +141,32 @@ const canEdit = () => me && (me.role === "admin" || me.role === "editor");
 
 async function enter() {
   const r = await api("GET", "/api/auth/me"); me = r.user;
+  if (!me.companies.length) { signedOut(t("noCompany")); return; }
+  const want = sessionStorage.getItem(CUR_KEY);
+  setCompany((me.companies.find((c) => c.slug === want) || me.companies.find((c) => c.slug === "simta") || me.companies[0]).slug, true);
   $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
-  $("#auditTab").classList.toggle("hidden", me.role !== "admin");
   $$(".tab").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+  $("#coSwitch").onchange = (e) => setCompany(e.target.value);
   applyLang();
 }
 let currentTab = "dash";
+const cname = (c) => lang === "ar" ? c.name_ar : c.name_en;
+function setCompany(slug, silent) {
+  cur = me.companies.find((c) => c.slug === slug); sessionStorage.setItem(CUR_KEY, slug);
+  me.role = me.platform_admin ? "admin" : cur.role; // role inside the active company
+  const sw = $("#coSwitch"); sw.replaceChildren(...me.companies.map((c) => el("option", { value: c.slug, selected: c.slug === slug }, cname(c))));
+  sw.classList.toggle("hidden", me.companies.length < 2);
+  $("#auditTab").classList.toggle("hidden", me.role !== "admin");
+  $("#usersTab").classList.toggle("hidden", me.role !== "admin");
+  $("#platformTab").classList.toggle("hidden", !me.platform_admin);
+  document.title = t("title") + " · " + cname(cur);
+  if (!silent) { if (currentTab === "platform" && !me.platform_admin) currentTab = "dash"; showTab(currentTab, true); }
+}
 function showTab(name, keep) {
   currentTab = name;
   $$(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-  ["dash", "emps", "audit"].forEach((s) => $("#" + s).classList.toggle("hidden", s !== name));
-  if (name === "dash") renderDash(); else if (name === "emps") renderEmps(); else if (name === "audit") renderAudit();
+  ["dash", "emps", "audit", "users", "platform"].forEach((s) => $("#" + s).classList.toggle("hidden", s !== name));
+  if (name === "dash") renderDash(); else if (name === "emps") renderEmps(); else if (name === "audit") renderAudit(); else if (name === "users") renderUsers(); else if (name === "platform") renderPlatform();
 }
 
 // ---------- dashboard ----------
@@ -276,7 +303,7 @@ function openForm(emp) {
   const err = el("div", { class: "err hidden", id: "formErr" });
   const inputs = {};
   const fields = [];
-  const idIn = el("input", { id: "f_id", value: data.id || "", dir: "ltr", placeholder: t("idHint"), disabled: !isNew, maxlength: 10, autocapitalize: "characters" });
+  const idIn = el("input", { id: "f_id", value: data.id || "", dir: "ltr", placeholder: (cur ? cur.prefix : "SMT") + "-005", disabled: !isNew, maxlength: 10, autocapitalize: "characters" });
   inputs.id = idIn; fields.push(el("div", { class: "f" }, el("label", { for: "f_id" }, t("id")), idIn, el("div", { class: "fe", id: "e_id" })));
   for (const [k, lk, a] of TEXT_FIELDS) {
     const inp = el("input", { id: "f_" + k, value: data[k] || "", maxlength: 254, ...a }); inputs[k] = inp;
@@ -373,6 +400,46 @@ async function renderAudit() {
     box.replaceChildren(el("h2", {}, t("tabAudit")), el("div", { class: "tablewrap" }, el("table", { class: "audit" },
       el("thead", {}, el("tr", {}, ...["time", "user", "action", "entity", "details"].map((k) => el("th", {}, t(k))))),
       el("tbody", {}, r.entries.map((e) => el("tr", {}, el("td", { class: "mono" }, e.ts.replace("T", " ").slice(0, 19)), el("td", { class: "mono" }, e.user_email || "—"), el("td", {}, e.action), el("td", { class: "mono" }, `${e.entity} ${e.entity_id || ""}`), el("td", { class: "mono", style: "max-width:320px;overflow-wrap:anywhere" }, (e.changes || "").slice(0, 160))))))));
+  } catch (e) { if (!e.auth) box.replaceChildren(el("div", { class: "err" }, e.message)); }
+}
+
+// ---------- users (company) ----------
+const ROLES = ["admin", "editor", "viewer"];
+const roleLbl = (r) => t({ admin: "roleAdmin", editor: "roleEditor", viewer: "roleViewer" }[r]);
+const field = (label, input) => el("div", { class: "f" }, el("label", {}, label), input);
+const roleSel = (v) => el("select", {}, ROLES.map((r) => el("option", { value: r, selected: r === v }, roleLbl(r))));
+async function renderUsers() {
+  const box = $("#users"); box.replaceChildren(el("p", { class: "muted" }, t("loading")));
+  try {
+    const r = await api("GET", "/api/admin/users");
+    const rows = r.users.map((u) => {
+      const sel = roleSel(u.role), act = el("input", { type: "checkbox", checked: !!u.active, style: "width:auto;min-height:0" }), pw = el("input", { type: "password", placeholder: t("uNewPass"), autocomplete: "new-password" });
+      const self = u.id === me.id;
+      const save = el("button", { class: "btn sm", type: "button", onclick: async () => { try { const b = { role: sel.value, active: act.checked }; if (pw.value) b.password = pw.value; await api("PUT", "/api/admin/users/" + u.id, b); toast(t("uDone")); renderUsers(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uSave"));
+      return el("div", { class: "card", style: "margin-bottom:10px;display:grid;gap:8px" }, el("strong", { dir: "ltr" }, u.email), el("span", { class: "muted" }, u.name || ""),
+        field(t("uRole"), sel), el("label", {}, act, " ", t("uActive")), field(t("uReset"), pw), self ? el("span", { class: "muted" }, "") : null, save);
+    });
+    const em = el("input", { type: "email", dir: "ltr", autocomplete: "off" }), nm = el("input", { type: "text" }), pw = el("input", { type: "password", autocomplete: "new-password" }), rs = roleSel("viewer");
+    const add = el("button", { class: "btn", type: "button", onclick: async () => { try { await api("POST", "/api/admin/users", { email: em.value.trim(), name: nm.value.trim(), password: pw.value, role: rs.value }); toast(t("uDone")); renderUsers(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uAdd"));
+    box.replaceChildren(el("h2", {}, t("tabUsers") + " · " + cname(cur)), el("div", { class: "card", style: "margin-bottom:14px;display:grid;gap:8px" }, field(t("uEmail"), em), field(t("uName"), nm), field(t("uPass"), pw), field(t("uRole"), rs), add), ...rows);
+  } catch (e) { if (!e.auth) box.replaceChildren(el("div", { class: "err" }, e.message)); }
+}
+// ---------- platform (platform admins only) ----------
+async function renderPlatform() {
+  const box = $("#platform"); box.replaceChildren(el("p", { class: "muted" }, t("loading")));
+  try {
+    const [cr, ur] = await Promise.all([api("GET", "/api/admin/companies"), api("GET", "/api/admin/platform/users")]);
+    const coCards = cr.companies.map((c) => {
+      const f = { name_ar: el("input", { value: c.name_ar }), name_en: el("input", { value: c.name_en, dir: "ltr" }), card_base_url: el("input", { value: c.card_base_url || "", dir: "ltr" }), allowed_origins: el("input", { value: c.allowed_origins || "", dir: "ltr" }) };
+      const act = el("input", { type: "checkbox", checked: !!c.active, style: "width:auto;min-height:0" });
+      return el("div", { class: "card", style: "margin-bottom:10px;display:grid;gap:8px" }, el("strong", { dir: "ltr" }, `${c.slug} · ${c.prefix}`), field(t("coNameAr"), f.name_ar), field(t("coNameEn"), f.name_en), field(t("coBase"), f.card_base_url), field(t("coOrigins"), f.allowed_origins), el("label", {}, act, " ", t("uActive")),
+        el("button", { class: "btn sm", type: "button", onclick: async () => { try { await api("PUT", "/api/admin/companies/" + c.id, { name_ar: f.name_ar.value, name_en: f.name_en.value, card_base_url: f.card_base_url.value, allowed_origins: f.allowed_origins.value, active: act.checked }); toast(t("uDone")); const m = await api("GET", "/api/auth/me"); me.companies = m.user.companies; if (!me.companies.find((x) => x.slug === cur.slug)) setCompany(me.companies[0].slug, true); else setCompany(cur.slug, true); renderPlatform(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uSave")));
+    });
+    const n = { slug: el("input", { dir: "ltr" }), prefix: el("input", { dir: "ltr", maxlength: 3 }), name_ar: el("input", {}), name_en: el("input", { dir: "ltr" }), card_base_url: el("input", { dir: "ltr" }), allowed_origins: el("input", { dir: "ltr" }) };
+    const addCo = el("button", { class: "btn", type: "button", onclick: async () => { try { const b = {}; for (const k in n) b[k] = n[k].value.trim(); await api("POST", "/api/admin/companies", b); toast(t("uDone")); const m = await api("GET", "/api/auth/me"); me.companies = m.user.companies; setCompany(cur.slug, true); renderPlatform(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("coAdd"));
+    const userCards = ur.users.map((u) => el("div", { class: "card", style: "margin-bottom:8px" }, el("strong", { dir: "ltr" }, u.email), u.is_super ? el("span", { class: "badge on", style: "margin-inline-start:8px" }, t("uSuper")) : null, u.active ? null : el("span", { class: "badge off", style: "margin-inline-start:8px" }, t("uOff")),
+      el("div", { class: "muted", dir: "ltr" }, (u.memberships || []).map((m) => `${m.company}:${m.role}${m.active ? "" : " (off)"}`).join("  ") || t("coNone"))));
+    box.replaceChildren(el("h2", {}, t("coList")), ...coCards, el("h2", {}, t("coAdd")), el("div", { class: "card", style: "margin-bottom:14px;display:grid;gap:8px" }, field(t("coSlug"), n.slug), field(t("coPrefix"), n.prefix), field(t("coNameAr"), n.name_ar), field(t("coNameEn"), n.name_en), field(t("coBase"), n.card_base_url), field(t("coOrigins"), n.allowed_origins), addCo), el("h2", {}, t("plUsers")), ...userCards);
   } catch (e) { if (!e.auth) box.replaceChildren(el("div", { class: "err" }, e.message)); }
 }
 
