@@ -200,6 +200,18 @@ let admin4 = r.j.token;
       t("40 parallel logins with rotating e-mails from one IP: exactly 30 processed", many.filter((x) => x.status === 401).length === 30 && many.filter((x) => x.status === 429).length === 10, many.map((x) => x.status).join());
     }
   }
+  { // exact reservation identity: a success releases ONLY its own IP slot, never other attempts of the same IP (even in the same millisecond)
+    for (const mode of RT === "mock" ? ["frozen clock", "real clock"] : ["real clock"]) {
+      const realNow = Date.now; if (mode === "frozen clock") { const f = realNow.call(Date); Date.now = () => f; }
+      try {
+        const ip = ip5();
+        const batch = await Promise.all([call("POST", "/api/auth/login", { body: { email: "editor@example.com", password: PW }, ip }), ...[1, 2, 3, 4].map((i) => call("POST", "/api/auth/login", { body: { email: `ghost${i}@example.com`, password: "x".repeat(12) }, ip }))]);
+        const rows = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='ip|${ip}'`))[0].n;
+        t(`${mode}: 1 success + 4 parallel failures from one IP leave exactly 4 IP slots`, batch[0].status === 200 && batch.slice(1).every((x) => x.status === 401) && rows === 4, `${batch.map((x) => x.status)} rows=${rows}`);
+        await call("POST", "/api/auth/logout", { token: batch[0].j && batch[0].j.token });
+      } finally { Date.now = realNow; }
+    }
+  }
   { // a successful sign-in gives its IP slot back
     const ip = ip5(); for (let i = 0; i < 10; i++) await call("POST", "/api/auth/login", { body: { email: `nobody${i}@example.com`, password: "x".repeat(12) }, ip });
     const before = (await rawq(`SELECT COUNT(*) AS n FROM login_attempts WHERE key='ip|${ip}'`))[0].n;
