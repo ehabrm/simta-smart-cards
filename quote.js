@@ -6,6 +6,7 @@ var CO={nameAr:"سيمتا",nameEn:"SIMTA",ink:"#29251f",accent:"#70451f",btnBg:
  fields:[
  {k:"qty",t:"number",req:1,lAr:"الكمية التقريبية (م³)",lEn:"Approximate quantity (m³)",pAr:"مثال: 50",pEn:"e.g. 50",mAr:"الكمية",mEn:"Quantity",uAr:" م³",uEn:" m³"},
  {k:"loc",t:"text",req:1,lAr:"موقع المشروع",lEn:"Project location",pAr:"المدينة، الحي",pEn:"City, district",mAr:"الموقع",mEn:"Location"},
+ {k:"co",t:"text",lAr:"اسم الشركة أو المؤسسة (اختياري)",lEn:"Company or establishment name (optional)",pAr:"مثال: شركة المثال للمقاولات",pEn:"e.g. Example Contracting Co.",mAr:"الشركة أو المؤسسة",mEn:"Company"},
  {k:"date",t:"date",lAr:"موعد الصب المطلوب (اختياري)",lEn:"Requested pour date (optional)",mAr:"موعد الصب",mEn:"Pour date"},
  {k:"notes",t:"textarea",lAr:"ملاحظات (اختياري)",lEn:"Notes (optional)",mAr:"ملاحظات",mEn:"Notes"}
  ],
