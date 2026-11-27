@@ -131,7 +131,7 @@ r = await call("GET", "/api/admin/stats", { token: admin });
 t("visit: views counted (2; preview, bot, missing and inactive excluded)", r.j.visits && r.j.visits.views.today - base.v === 2, JSON.stringify(r.j.visits && r.j.visits.views));
 t("visit: approx browsers today +1 (self-reported first-of-day flag)", r.j.visits.browsers_approx.today - base.b === 1);
 t("visit: top card listed", (r.j.visits.top_30d.find((x) => x.id === "SMT-778") || { views: 0 }).views - base.c === 2);
-t("visit: no visitor identifiers stored", JSON.stringify(env.DB._raw.prepare("PRAGMA table_info(card_views)").all().map((c) => c.name)) === '["day","employee_id","views","browsers"]');
+t("visit: no visitor identifiers stored", JSON.stringify(env.DB._raw.prepare("PRAGMA table_info(card_views)").all().map((c) => c.name)) === '["day","employee_id","views","browsers","company_id"]');
 { const bad = { ...env, DB: { ...env.DB, batch: async () => { throw new Error("db down"); } } }; const rr = await worker.fetch(new Request("https://api.test/api/employees/SMT-778", { headers: { "User-Agent": "Mozilla/5.0" } }), bad); t("visit: counting failure never breaks the card", rr.status === 200, rr.status); }
 env.VIEWS_FLUSH_SECONDS = "3600"; await view("/api/employees/SMT-778"); await view("/api/employees/SMT-778");
 r = await call("GET", "/api/admin/stats", { token: admin }); t("visit: batching limits writes (no new flush within the interval)", r.j.visits.views.today - base.v === 2, r.j.visits.views.today);
