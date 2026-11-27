@@ -5,9 +5,16 @@ let R=document;const $=i=>R.querySelector("#"+i)||document.createElement("i");
 const params=new URLSearchParams(location.search);
 const id=(params.get("id")||window.SIMTA_DEFAULT_ID||"SMT-001").trim().toUpperCase();
 let rep=null,state="loading",english=(params.get("lang")==="en");
+function applyBrand(){const b=window.COMPANY.brand,q=(s,f)=>document.querySelectorAll(s).forEach(f);
+ document.title=b.pageTitle;q('meta[name=description]',e=>e.setAttribute("content",b.metaDesc));
+ q('link[rel=icon]',e=>e.setAttribute("href",b.icon));q('link[rel=apple-touch-icon]',e=>e.setAttribute("href",b.touchIcon));
+ q('img.logo, .brand img',e=>{e.setAttribute("src",b.logo);e.setAttribute("alt",b.logoAlt)});
+ q('.side img, .company img, .about img',e=>e.setAttribute("src",b.emblem));
+ q('#sideTitle, #companyTitle',e=>{e.textContent=b.panelTitle});q('.footer',e=>{e.textContent=b.footer})}
+applyBrand();
 const T={
- ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",share:"مشاركة البطاقة",phoneL:"الهاتف",emailL:"البريد الإلكتروني",deptL:"القسم",regionL:"الموقع",desc:"سيمتا شركة متخصصة في الخرسانة الجاهزة، هدفنا أن نكون شريكًا يُعتمد عليه في مشروعك، والجودة هي أساس ما نقدّمه. تواصل مع ممثلنا لمعرفة المزيد.",nfT:"البطاقة غير موجودة",nfB:"هذه البطاقة غير موجودة أو تم حذفها.",mtT:"الموقع تحت الصيانة",mtB:"الموقع تحت الصيانة حاليًا. نعمل على تحسين الخدمة، يُرجى المحاولة لاحقًا.",cmT:"هذه البطاقة تحت الصيانة",cmB:"هذه البطاقة متوقفة مؤقتًا للصيانة. يُرجى المحاولة لاحقًا.",unT:"تعذّر تحميل البطاقة",unB:"لا يمكن الوصول إلى الخدمة الآن. حاول مرة أخرى بعد قليل.",loading:"جارٍ التحميل…",chip:"رقم الموظف",copied:"تم نسخ رابط البطاقة"},
- en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",share:"Share card",phoneL:"Phone",emailL:"Email",deptL:"Department",regionL:"Location",desc:"SIMTA is a ready-mix concrete company. We aim to be a partner you can rely on for your project, and quality is the foundation of what we offer. Contact our representative to learn more.",nfT:"Card not found",nfB:"This card does not exist or has been deleted.",mtT:"Site under maintenance",mtB:"The site is currently under maintenance. We are working to improve the service. Please try again later.",cmT:"This card is under maintenance",cmB:"This card is temporarily unavailable for maintenance. Please try again later.",unT:"Could not load this card",unB:"The service is not reachable right now. Please try again in a moment.",loading:"Loading…",chip:"Employee ID",copied:"Card link copied"}
+ ar:{btn:"English",call:"اتصال",wa:"واتساب",save:"حفظ جهة الاتصال",share:"مشاركة البطاقة",phoneL:"الهاتف",emailL:"البريد الإلكتروني",deptL:"القسم",regionL:"الموقع",desc:window.COMPANY.descAr,nfT:"البطاقة غير موجودة",nfB:"هذه البطاقة غير موجودة أو تم حذفها.",mtT:"الموقع تحت الصيانة",mtB:"الموقع تحت الصيانة حاليًا. نعمل على تحسين الخدمة، يُرجى المحاولة لاحقًا.",cmT:"هذه البطاقة تحت الصيانة",cmB:"هذه البطاقة متوقفة مؤقتًا للصيانة. يُرجى المحاولة لاحقًا.",unT:"تعذّر تحميل البطاقة",unB:"لا يمكن الوصول إلى الخدمة الآن. حاول مرة أخرى بعد قليل.",loading:"جارٍ التحميل…",chip:"رقم الموظف",copied:"تم نسخ رابط البطاقة"},
+ en:{btn:"العربية",call:"Call",wa:"WhatsApp",save:"Save contact",share:"Share card",phoneL:"Phone",emailL:"Email",deptL:"Department",regionL:"Location",desc:window.COMPANY.descEn,nfT:"Card not found",nfB:"This card does not exist or has been deleted.",mtT:"Site under maintenance",mtB:"The site is currently under maintenance. We are working to improve the service. Please try again later.",cmT:"This card is under maintenance",cmB:"This card is temporarily unavailable for maintenance. Please try again later.",unT:"Could not load this card",unB:"The service is not reachable right now. Please try again in a moment.",loading:"Loading…",chip:"Employee ID",copied:"Card link copied"}
 };
 const DEFAULT_AV='<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" fill="#e8dac5"/><circle cx="32" cy="25" r="11" fill="#9c7040"/><path d="M10 64c0-14 9-22 22-22s22 8 22 22z" fill="#9c7040"/></svg>';
 const digits=s=>String(s||"").replace(/[^\d]/g,"");
@@ -33,7 +40,7 @@ function renderOne(){
  $("emailRow").style.display=rep.email?"":"none";if(rep.email){$("email").textContent=rep.email;$("emailRow").href="mailto:"+encodeURIComponent(rep.email).replace(/%40/g,"@")}
  const dept=english?rep.dept_en:rep.dept_ar;$("deptRow").style.display=dept?"":"none";$("dept").textContent=dept||"";
  const loc=english?rep.location_en:rep.location_ar;$("region").parentNode.parentNode.style.display=loc?"":"none";$("region").textContent=loc||"";
- document.title="SIMTA | "+nm;
+ document.title=window.COMPANY.titleName+" | "+nm;
 }
 function render(){document.querySelectorAll(".root").forEach(r=>{R=r;renderOne()})}
 function toggleLang(){english=!english;render()}
@@ -41,17 +48,17 @@ function toast(m){const e=document.getElementById("toast");e.textContent=m;e.cla
 const vesc=s=>String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\r?\n/g,"\\n");
 function buildVcard(r){
  const loc=r.location_en||r.location_ar;
- const L=["BEGIN:VCARD","VERSION:3.0","N;CHARSET=utf-8:;"+vesc(r.name_en||r.name_ar)+";;;","FN;CHARSET=utf-8:"+vesc(r.name_en||r.name_ar),"ORG;CHARSET=utf-8:SIMTA Ready Mix Concrete"+(r.dept_en?";"+vesc(r.dept_en):""),"TITLE;CHARSET=utf-8:"+vesc(r.title_en||r.title_ar),"TEL;TYPE=CELL,VOICE:"+tel(r.phone)];
+ const L=["BEGIN:VCARD","VERSION:3.0","N;CHARSET=utf-8:;"+vesc(r.name_en||r.name_ar)+";;;","FN;CHARSET=utf-8:"+vesc(r.name_en||r.name_ar),"ORG;CHARSET=utf-8:"+window.COMPANY.vcardOrg+(r.dept_en?";"+vesc(r.dept_en):""),"TITLE;CHARSET=utf-8:"+vesc(r.title_en||r.title_ar),"TEL;TYPE=CELL,VOICE:"+tel(r.phone)];
  if(digits(r.whatsapp))L.push("TEL;TYPE=CELL,WHATSAPP:+"+digits(r.whatsapp));
  if(r.email)L.push("EMAIL;TYPE=INTERNET,WORK:"+vesc(r.email));
  if(loc)L.push("ADR;TYPE=WORK;CHARSET=utf-8:;;"+vesc(loc)+";;;;");
  if(r.name_ar&&r.name_en)L.push("NOTE;CHARSET=utf-8:"+vesc(r.name_ar));
  L.push("URL:"+location.origin+location.pathname+"?id="+r.id,"END:VCARD");return L.join("\r\n")
 }
-function downloadVcard(){if(!rep)return;const blob=new Blob([buildVcard(rep)],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SIMTA-"+rep.id+".vcf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function downloadVcard(){if(!rep)return;const blob=new Blob([buildVcard(rep)],{type:"text/vcard;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=window.COMPANY.vcardFilePrefix+rep.id+".vcf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function shareCard(){
  const url=location.origin+location.pathname+"?id="+rep.id;const t=english?T.en:T.ar;
- if(navigator.share){try{await navigator.share({title:"SIMTA | "+(english?rep.name_en:rep.name_ar),url});return}catch(e){if(e&&e.name==="AbortError")return}}
+ if(navigator.share){try{await navigator.share({title:window.COMPANY.titleName+" | "+(english?rep.name_en:rep.name_ar),url});return}catch(e){if(e&&e.name==="AbortError")return}}
  try{await navigator.clipboard.writeText(url);toast(t.copied)}catch(e){window.prompt(url,url)}
 }
 async function load(){
