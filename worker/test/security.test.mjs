@@ -119,7 +119,7 @@ await call("PUT", "/api/admin/users/3", { token: admin2, body: { role: "editor" 
 r = await call("POST", "/api/auth/logout", { token: editor2 }); const lo = r.status; r = await call("GET", "/api/auth/me", { token: editor2 }); t("logout invalidates the token server-side", lo === 200 && r.status === 401);
 r = await call("GET", "/api/admin/users", { token: admin2 });
 t("user list never exposes password hash, salt or 2FA secret", !/pass_hash|salt|totp_secret|iterations/.test(r.text), r.text.slice(0, 200));
-r = await call("GET", "/api/auth/me", { token: admin2 }); t("/me exposes only id, email, name, role, two_factor", Object.keys(r.j.user).sort().join() === "email,id,name,role,two_factor");
+r = await call("GET", "/api/auth/me", { token: admin2 }); t("/me exposes only the safe fields (id, email, name, role, two_factor, platform_admin, companies)", Object.keys(r.j.user).sort().join() === "companies,email,id,name,platform_admin,role,two_factor");
 
 // ---- 5. two-factor (TOTP)
 const ip5 = () => newIp();
