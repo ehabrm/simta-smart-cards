@@ -2,15 +2,9 @@
    Nothing is sent by the site: the visitor reviews the text and sends it inside WhatsApp. */
 (function(){
 "use strict";
-var CO={nameAr:"سيمتا",nameEn:"SIMTA",ink:"#29251f",accent:"#70451f",btnBg:"#4b2f18",
- fields:[
- {k:"qty",t:"number",req:1,lAr:"الكمية التقريبية (م³)",lEn:"Approximate quantity (m³)",pAr:"مثال: 50",pEn:"e.g. 50",mAr:"الكمية",mEn:"Quantity",uAr:" م³",uEn:" m³"},
- {k:"loc",t:"text",req:1,lAr:"موقع المشروع",lEn:"Project location",pAr:"المدينة، الحي",pEn:"City, district",mAr:"الموقع",mEn:"Location"},
- {k:"co",t:"text",lAr:"اسم الشركة أو المؤسسة (اختياري)",lEn:"Company or establishment name (optional)",pAr:"مثال: شركة المثال للمقاولات",pEn:"e.g. Example Contracting Co.",mAr:"الشركة أو المؤسسة",mEn:"Company"},
- {k:"date",t:"date",lAr:"موعد الصب المطلوب (اختياري)",lEn:"Requested pour date (optional)",mAr:"موعد الصب",mEn:"Pour date"},
- {k:"notes",t:"textarea",lAr:"ملاحظات (اختياري)",lEn:"Notes (optional)",mAr:"ملاحظات",mEn:"Notes"}
- ],
- css:".qr-btn{grid-column:1/-1;display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border-radius:14px;border:1.5px solid #b58a55;background:#f6ecdc;color:#4b2f18;font-weight:700;font-size:16px;line-height:1.2;font-family:inherit;cursor:pointer;margin:0;padding:8px 12px}.v2 .qr-btn{grid-column:1/-1;min-height:54px;border-radius:16px}.qr-btn:active{transform:scale(.98)}",
+var K=window.COMPANY,CO={nameAr:K.nameAr,nameEn:K.nameEn,ink:K.quote.ink,accent:K.quote.accent,btnBg:K.quote.btnBg,
+ fields:K.quote.fields,
+ css:".qr-btn{grid-column:1/-1;display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border-radius:14px;border:1.5px solid "+K.quote.btnBorder+";background:"+K.quote.btnSoft+";color:"+K.quote.btnBg+";font-weight:700;font-size:16px;line-height:1.2;font-family:inherit;cursor:pointer;margin:0;padding:8px 12px}.v2 .qr-btn{grid-column:1/-1;min-height:54px;border-radius:16px}.qr-btn:active{transform:scale(.98)}",
  rep:function(){if(typeof rep==="undefined"||!rep||state!=="ready")return null;var w=digits(rep.whatsapp);if(!w)return null;return{id:rep.id,wa:w,phone:rep.phone||("+"+w),nameAr:rep.name_ar||rep.name_en||"",nameEn:rep.name_en||rep.name_ar||""}},
  en:function(){return english},before:"#save",
  hosts:function(){return Array.prototype.slice.call(document.querySelectorAll(".root .actions"))},
