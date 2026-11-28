@@ -111,6 +111,71 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
 .muted{color:var(--muted)}
 .empty{padding:30px;text-align:center;color:var(--muted)}
 .audit td{font-size:13px}
+
+/* ---- app shell (sidebar layout) ---- */
+.layout{display:grid;grid-template-columns:248px minmax(0,1fr);align-items:start}
+.side{position:sticky;top:57px;height:calc(100vh - 57px);overflow:auto;padding:16px 12px;background:rgba(3,12,36,.6);border-inline-end:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+#nav{display:flex;flex-direction:column;gap:4px}
+.tab{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:11px 12px;border-radius:12px;color:var(--muted);font-weight:600;cursor:pointer;text-align:start;min-height:44px}
+.tab svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tab:hover{color:var(--ink);background:#0a1a3d}
+.tab[aria-selected=true]{color:#fff;background:linear-gradient(135deg,#143a8f,#0e5a95);box-shadow:inset 0 0 0 1px #2a56b8}
+.sidefoot{margin-top:auto;padding:12px;font-size:12px;color:#7487b3;direction:ltr;text-align:center}
+.layout>main{margin:0 auto;width:100%;max-width:1240px}
+.badge:empty{display:none}
+.menubtn,.scrim{display:none}
+@media(max-width:900px){
+ .layout{display:block}
+ .menubtn{display:inline-block;padding:6px 12px;font-size:16px;line-height:1}
+ .side{position:fixed;z-index:40;top:0;height:100vh;width:268px;inset-inline-start:0;background:#040f2b;transition:transform .2s;padding-top:20px}
+ [dir=rtl] .side{transform:translateX(100%)}[dir=ltr] .side{transform:translateX(-100%)}
+ .side.open{transform:none!important}
+ .scrim{position:fixed;inset:0;background:#01081bb0;z-index:39}.scrim.on{display:block}
+}
+.page-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.page-h h2{margin:0;flex:1;min-width:160px}
+.sub{color:var(--muted);font-size:13px}
+.stats3{grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.stats3{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.stats3{grid-template-columns:repeat(6,1fr)}}
+.stat{position:relative}.stat small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.cogrid{display:grid;gap:14px;grid-template-columns:1fr}@media(min-width:700px){.cogrid{grid-template-columns:1fr 1fr}}@media(min-width:1150px){.cogrid{grid-template-columns:repeat(3,1fr)}}
+.co{display:grid;gap:12px;cursor:pointer;transition:border-color .15s,transform .15s;text-align:start;color:inherit;width:100%;font:inherit}
+.co:hover{border-color:var(--cy);transform:translateY(-1px)}
+.co .top{display:flex;gap:12px;align-items:center}
+.logo-b{width:52px;height:52px;border-radius:14px;overflow:hidden;flex:none;display:grid;place-items:center;font-weight:800;color:#fff;font-size:18px;direction:ltr}
+.logo-b img{width:100%;height:100%;object-fit:contain;background:#fff}
+.logo-b.lg{width:72px;height:72px;border-radius:18px;font-size:24px}
+.mini{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:13px}.mini b{color:#fff}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.badge.warn{background:#4a3a14;color:var(--gold)}.badge.mute{background:#1b2a52;color:var(--muted)}
+.subtabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 16px}
+.subtab{border:0;background:none;padding:10px 14px;border-bottom:3px solid transparent;color:var(--muted);font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px}
+.subtab[aria-selected=true]{color:#fff;border-bottom-color:var(--cy)}
+.alertrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.alertrow:last-child{border-bottom:0}.alertrow span.t{flex:1;min-width:180px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--gold);flex:none}
+.shortcuts{display:grid;gap:10px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.shortcuts{grid-template-columns:repeat(4,1fr)}}
+.shortcuts .btn{justify-content:flex-start}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 18px;counter-reset:s}
+.step{flex:1;min-width:92px;text-align:center;font-size:12px;color:var(--muted);padding:8px 6px;border-radius:10px;background:#071735;border:1px solid var(--line)}
+.step.on{color:#fff;border-color:var(--cy);background:#0b2a60}.step.done{color:var(--ok)}
+.fgrid2{display:grid;gap:0 14px;grid-template-columns:1fr}@media(min-width:700px){.fgrid2{grid-template-columns:1fr 1fr}}
+.brrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+@media(max-width:620px){.brrow{grid-template-columns:1fr auto}.brrow button{grid-column:2;grid-row:1/3}}
+.colorrow{display:flex;gap:10px;align-items:center}.colorrow input[type=color]{width:56px;padding:3px;min-height:44px}
+.pv{border:1px solid var(--line);border-radius:22px;overflow:hidden;background:#fff;color:#14213d;max-width:300px;margin:0 auto;box-shadow:0 10px 30px #0006}
+.pv .hd{padding:22px 16px 38px;color:#fff;text-align:center}
+.pv .lg{width:68px;height:68px;border-radius:18px;margin:0 auto 8px;background:#ffffff30;display:grid;place-items:center;overflow:hidden;font-weight:800;font-size:22px}
+.pv .lg img{width:100%;height:100%;object-fit:contain;background:#fff}
+.pv .bd{padding:0 16px 18px;margin-top:-22px}
+.pv .em{background:#fff;border-radius:16px;box-shadow:0 4px 14px #0002;padding:12px;text-align:center}
+.pv .em b{display:block;font-size:15px}.pv .em span{font-size:12px;color:#5a6785}
+.pv .bt{display:block;margin:10px 0 0;padding:10px;border-radius:12px;color:#fff;text-align:center;font-weight:700;font-size:13px}
+.pv .brs{margin-top:12px;font-size:12px;color:#44506b;text-align:center}
+.progress li{list-style:none;padding:6px 0;display:flex;gap:8px}.progress{padding:0;margin:10px 0}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.sw{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.arch li{display:flex;gap:10px;align-items:center;list-style:none;padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.arch{padding:0;margin:8px 0}
+@media(max-width:760px){main{padding:14px 12px 50px}.page-h h2{font-size:18px}}
 </style>
 </head>
 <body>
@@ -134,6 +199,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
 
 <div id="appView" class="hidden">
   <header class="topbar">
+    <button class="pill menubtn" id="menuBtn" type="button" aria-label="Menu" aria-controls="side" aria-expanded="false">☰</button>
     <a class="brand" href="admin.html" aria-label="EANOVA Cards"><img class="logo" src="data:image/webp;base64,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" alt="EANOVA"><span><b>EANOVA</b><small>Cards Platform</small></span></a>
     <div class="sp"></div>
     <span class="who" id="who"></span>
@@ -142,28 +208,27 @@ label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
     <button class="pill" id="twoFaBtn" type="button" data-i="twoFa"></button>
     <button class="pill" id="logoutBtn" type="button" data-i="signOut"></button>
   </header>
-  <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="dash" data-i="tabDash"></button>
-    <button class="tab" role="tab" data-tab="emps" data-i="tabEmps"></button>
-    <button class="tab" role="tab" data-tab="qr" data-i="tabQr"></button>
-    <button class="tab hidden" role="tab" data-tab="audit" id="auditTab" data-i="tabAudit"></button>
-    <button class="tab hidden" role="tab" data-tab="users" id="usersTab" data-i="tabUsers"></button>
-    <button class="tab hidden" role="tab" data-tab="platform" id="platformTab" data-i="tabPlatform"></button>
-  </nav>
+  <div class="layout">
+    <aside class="side" id="side" aria-label="Navigation"><nav id="nav" role="tablist"></nav><div class="sidefoot" id="sideFoot"></div></aside>
+    <div class="scrim" id="scrim"></div>
   <main>
-    <section id="dash"></section>
+    <section id="home" class="hidden"></section>
+    <section id="dash" class="hidden"></section>
+    <section id="companies" class="hidden"></section>
     <section id="emps" class="hidden"></section>
     <section id="qr" class="hidden"></section>
-    <section id="audit" class="hidden"></section>
     <section id="users" class="hidden"></section>
-    <section id="platform" class="hidden"></section>
+    <section id="audit" class="hidden"></section>
+    <section id="settings" class="hidden"></section>
   </main>
+  </div>
 </div>
 
 <div id="modalHost"></div>
 <div class="toast" id="toast" role="status"></div>
 
 <script src="admin.js"></script>
+<script src="admin-shell.js"></script>
 </body>
 </html>
 

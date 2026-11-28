@@ -65,8 +65,9 @@ function el(tag, attrs = {}, ...kids) {
 }
 function toast(m) { const e = $("#toast"); e.textContent = m; e.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("on"), 2200); }
 function cardUrl(id) {
-  const base = (cur && cur.slug !== "simta" && cur.card_base_url) ? cur.card_base_url : (CFG.CARD_BASE_URL || new URL("card.html", location.href).href);
-  return base + "?id=" + encodeURIComponent(id);
+  const std = CFG.CARD_BASE_URL || new URL("card.html", location.href).href;
+  const base = (cur && cur.slug !== "simta" && cur.card_base_url) ? cur.card_base_url : (cur && cur.slug !== "simta" ? std.replace(/card\.html$/, "company-card.html") + "?c=" + cur.slug : std);
+  return base + (base.includes("?") ? "&" : "?") + "id=" + encodeURIComponent(id);
 }
 function applyLang() {
   document.documentElement.lang = lang; document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
@@ -161,36 +162,8 @@ $("#twoFaBtn").addEventListener("click", () => {
 $("#logoutBtn").addEventListener("click", async () => { try { const rec = readRem(); await api("POST", "/api/auth/logout", rec ? { remember_token: rec.t } : undefined, { retried: true }); } catch { /* ignore */ } signedOut(""); });
 const canEdit = () => me && (me.role === "admin" || me.role === "editor");
 
-async function enter() {
-  const r = await api("GET", "/api/auth/me"); me = r.user;
-  if (!me.companies.length) { signedOut(t("noCompany")); return; }
-  const want = sessionStorage.getItem(CUR_KEY);
-  setCompany((me.companies.find((c) => c.slug === want) || me.companies.find((c) => c.slug === "simta") || me.companies[0]).slug, true);
-  $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
-  $$(".tab").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
-  $("#coSwitch").onchange = (e) => setCompany(e.target.value);
-  applyLang();
-}
 let currentTab = "dash";
 const cname = (c) => lang === "ar" ? c.name_ar : c.name_en;
-function setCompany(slug, silent) {
-  cur = me.companies.find((c) => c.slug === slug); sessionStorage.setItem(CUR_KEY, slug);
-  me.role = me.platform_admin ? "admin" : cur.role; // role inside the active company
-  const sw = $("#coSwitch"); sw.replaceChildren(...me.companies.map((c) => el("option", { value: c.slug, selected: c.slug === slug }, cname(c))));
-  sw.classList.toggle("hidden", me.companies.length < 2);
-  $("#auditTab").classList.toggle("hidden", me.role !== "admin");
-  $("#usersTab").classList.toggle("hidden", me.role !== "admin");
-  $("#platformTab").classList.toggle("hidden", !me.platform_admin);
-  document.title = t("title") + " · " + cname(cur);
-  if (!silent) { if (currentTab === "platform" && !me.platform_admin) currentTab = "dash"; showTab(currentTab, true); }
-}
-function showTab(name, keep) {
-  currentTab = name;
-  $$(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-  ["dash", "emps", "qr", "audit", "users", "platform"].forEach((s) => $("#" + s).classList.toggle("hidden", s !== name));
-  if (name === "dash") renderDash(); else if (name === "emps") renderEmps(); else if (name === "qr") renderQr(); else if (name === "audit") renderAudit(); else if (name === "users") renderUsers(); else if (name === "platform") renderPlatform();
-}
-
 // ---------- dashboard ----------
 async function renderDash() {
   const box = $("#dash"); box.replaceChildren(el("p", { class: "muted" }, t("loading")));
@@ -200,18 +173,7 @@ async function renderDash() {
     const max = Math.max(1, ...s.departments.map((d) => d.n));
     const nm = (r) => lang === "ar" ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar);
     let mt = false; try { mt = (await api("GET", "/api/admin/maintenance")).maintenance; } catch (e) { if (e.auth) throw e; }
-    const isAdmin = me && me.role === "admin";
-    const mtBox = el("div", { class: "card", style: "margin-bottom:14px" }, el("h2", {}, t("mtTitle"), " ", el("span", { class: "badge " + (mt ? "off" : "on") }, mt ? t("mtBadge") : t("mtBadgeOk"))), el("p", { class: "muted" }, mt ? t("mtOnDesc") : t("mtOffDesc")));
-    if (isAdmin) {
-      const btn = el("button", { class: "btn", type: "button", id: "mtBtn" }, mt ? t("mtEnable") : t("mtDisable"));
-      btn.addEventListener("click", async () => {
-        if (!confirm(mt ? t("mtConfEn") : t("mtConfDis"))) return;
-        btn.disabled = true;
-        try { await api("PUT", "/api/admin/maintenance", { enabled: !mt }); toast(!mt ? t("mtDoneOn") : t("mtDoneOff")); renderDash(); }
-        catch (e) { btn.disabled = false; if (!e.auth) toast(e.message); }
-      });
-      mtBox.append(btn);
-    }
+    const mtBox = mt ? el("div", { class: "card", style: "margin-bottom:14px;border-color:#7a6320;display:flex;gap:12px;align-items:center;flex-wrap:wrap" }, el("span", { class: "badge off" }, t("mtBadge")), el("span", { class: "muted", style: "flex:1" }, t("mtOnDesc")), el("button", { class: "btn sm", type: "button", onclick: () => showTab("settings") }, t("nSettings"))) : null;
     box.replaceChildren(
       mtBox,
       el("div", { class: "grid stats" }, stat(s.total, t("total")), stat(s.active, t("active")), stat(s.inactive, t("inactive")), stat(s.with_photo, t("withPhoto"))),
@@ -477,46 +439,4 @@ const ROLES = ["admin", "editor", "viewer"];
 const roleLbl = (r) => t({ admin: "roleAdmin", editor: "roleEditor", viewer: "roleViewer" }[r]);
 const field = (label, input) => el("div", { class: "f" }, el("label", {}, label), input);
 const roleSel = (v) => el("select", {}, ROLES.map((r) => el("option", { value: r, selected: r === v }, roleLbl(r))));
-async function renderUsers() {
-  const box = $("#users"); box.replaceChildren(el("p", { class: "muted" }, t("loading")));
-  try {
-    const r = await api("GET", "/api/admin/users");
-    const rows = r.users.map((u) => {
-      const sel = roleSel(u.role), act = el("input", { type: "checkbox", checked: !!u.active, style: "width:auto;min-height:0" }), pw = el("input", { type: "password", placeholder: t("uNewPass"), autocomplete: "new-password" });
-      const self = u.id === me.id;
-      const save = el("button", { class: "btn sm", type: "button", onclick: async () => { try { const b = { role: sel.value, active: act.checked }; if (pw.value) b.password = pw.value; await api("PUT", "/api/admin/users/" + u.id, b); toast(t("uDone")); renderUsers(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uSave"));
-      return el("div", { class: "card", style: "margin-bottom:10px;display:grid;gap:8px" }, el("strong", { dir: "ltr" }, u.email), el("span", { class: "muted" }, u.name || ""),
-        field(t("uRole"), sel), el("label", {}, act, " ", t("uActive")), field(t("uReset"), pw), self ? el("span", { class: "muted" }, "") : null, save);
-    });
-    const em = el("input", { type: "email", dir: "ltr", autocomplete: "off" }), nm = el("input", { type: "text" }), pw = el("input", { type: "password", autocomplete: "new-password" }), rs = roleSel("viewer");
-    const add = el("button", { class: "btn", type: "button", onclick: async () => { try { await api("POST", "/api/admin/users", { email: em.value.trim(), name: nm.value.trim(), password: pw.value, role: rs.value }); toast(t("uDone")); renderUsers(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uAdd"));
-    box.replaceChildren(el("h2", {}, t("tabUsers") + " · " + cname(cur)), el("div", { class: "card", style: "margin-bottom:14px;display:grid;gap:8px" }, field(t("uEmail"), em), field(t("uName"), nm), field(t("uPass"), pw), field(t("uRole"), rs), add), ...rows);
-  } catch (e) { if (!e.auth) box.replaceChildren(el("div", { class: "err" }, e.message)); }
-}
-// ---------- platform (platform admins only) ----------
-function branchesEditor(c) { const wrap = el("div", { style: "display:grid;gap:6px;margin-top:6px" }); const rows = el("div", { style: "display:grid;gap:6px" }); const addRow = (b = {}) => { const ar = el("input", { value: b.name_ar || "", placeholder: t("brNameAr"), maxlength: 120 }), en = el("input", { value: b.name_en || "", dir: "ltr", placeholder: t("brNameEn"), maxlength: 120 }); const row = el("div", { class: "br-row", style: "display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center" }, ar, en, el("button", { class: "btn sm", type: "button", title: t("brDel"), "aria-label": t("brDel"), onclick: () => { row.remove(); empty.hidden = !!rows.children.length; } }, "✕")); row._get = () => ({ name_ar: ar.value.trim(), name_en: en.value.trim() }); rows.append(row); empty.hidden = true; }; const empty = el("span", { class: "muted" }, t("brEmpty")); const save = el("button", { class: "btn sm", type: "button", onclick: async () => { try { const list = [...rows.children].map((r) => r._get()); const r = await api("PUT", "/api/admin/companies/" + c.id + "/branches", { branches: list }); rows.replaceChildren(); empty.hidden = !!r.branches.length; r.branches.forEach(addRow); toast(t("brDone")); } catch (e) { if (!e.auth) toast(e.message); } } }, t("brSave")); wrap.append(el("strong", {}, t("brTitle")), rows, empty, el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, el("button", { class: "btn sm", type: "button", onclick: () => addRow() }, t("brAdd")), save)); api("GET", "/api/admin/companies/" + c.id + "/branches").then((r) => { empty.hidden = !!r.branches.length; r.branches.forEach(addRow); }).catch((e) => { if (!e.auth) toast(e.message); }); return wrap; }
-async function renderPlatform() {
-  const box = $("#platform"); box.replaceChildren(el("p", { class: "muted" }, t("loading")));
-  try {
-    const [cr, ur] = await Promise.all([api("GET", "/api/admin/companies"), api("GET", "/api/admin/platform/users")]);
-    const coCards = cr.companies.map((c) => {
-      const f = { name_ar: el("input", { value: c.name_ar }), name_en: el("input", { value: c.name_en, dir: "ltr" }), card_base_url: el("input", { value: c.card_base_url || "", dir: "ltr" }), allowed_origins: el("input", { value: c.allowed_origins || "", dir: "ltr" }) };
-      const act = el("input", { type: "checkbox", checked: !!c.active, style: "width:auto;min-height:0" });
-      return el("div", { class: "card", style: "margin-bottom:10px;display:grid;gap:8px" }, el("strong", { dir: "ltr" }, `${c.slug} · ${c.prefix}`), field(t("coNameAr"), f.name_ar), field(t("coNameEn"), f.name_en), field(t("coBase"), f.card_base_url), field(t("coOrigins"), f.allowed_origins), el("label", {}, act, " ", t("uActive")),
-        el("button", { class: "btn sm", type: "button", onclick: async () => { try { await api("PUT", "/api/admin/companies/" + c.id, { name_ar: f.name_ar.value, name_en: f.name_en.value, card_base_url: f.card_base_url.value, allowed_origins: f.allowed_origins.value, active: act.checked }); toast(t("uDone")); const m = await api("GET", "/api/auth/me"); me.companies = m.user.companies; if (!me.companies.find((x) => x.slug === cur.slug)) setCompany(me.companies[0].slug, true); else setCompany(cur.slug, true); renderPlatform(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("uSave")), branchesEditor(c));
-    });
-    const n = { slug: el("input", { dir: "ltr" }), prefix: el("input", { dir: "ltr", maxlength: 3 }), name_ar: el("input", {}), name_en: el("input", { dir: "ltr" }), card_base_url: el("input", { dir: "ltr" }), allowed_origins: el("input", { dir: "ltr" }) };
-    const addCo = el("button", { class: "btn", type: "button", onclick: async () => { try { const b = {}; for (const k in n) b[k] = n[k].value.trim(); await api("POST", "/api/admin/companies", b); toast(t("uDone")); const m = await api("GET", "/api/auth/me"); me.companies = m.user.companies; setCompany(cur.slug, true); renderPlatform(); } catch (e) { if (!e.auth) toast(e.message); } } }, t("coAdd"));
-    const userCards = ur.users.map((u) => el("div", { class: "card", style: "margin-bottom:8px" }, el("strong", { dir: "ltr" }, u.email), u.is_super ? el("span", { class: "badge on", style: "margin-inline-start:8px" }, t("uSuper")) : null, u.active ? null : el("span", { class: "badge off", style: "margin-inline-start:8px" }, t("uOff")),
-      el("div", { class: "muted", dir: "ltr" }, (u.memberships || []).map((m) => `${m.company}:${m.role}${m.active ? "" : " (off)"}`).join("  ") || t("coNone"))));
-    box.replaceChildren(el("h2", {}, t("coList")), ...coCards, el("h2", {}, t("coAdd")), el("div", { class: "card", style: "margin-bottom:14px;display:grid;gap:8px" }, field(t("coSlug"), n.slug), field(t("coPrefix"), n.prefix), field(t("coNameAr"), n.name_ar), field(t("coNameEn"), n.name_en), field(t("coBase"), n.card_base_url), field(t("coOrigins"), n.allowed_origins), addCo), el("h2", {}, t("plUsers")), ...userCards);
-  } catch (e) { if (!e.auth) box.replaceChildren(el("div", { class: "err" }, e.message)); }
-}
-
-// ---------- start ----------
-applyLang();
-const start = () => enter().catch((e) => { if (!e.auth) signedOut(e.message); });
-if (token) start();
-else if (readRem()) refreshSession().then((ok) => (ok ? start() : signedOut("")));
-else signedOut("");
-
+// (companies, branches and platform users live in admin-shell.js)
